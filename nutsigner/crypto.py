@@ -1,8 +1,9 @@
 """Cashu crypto helpers: NUT-00 blinding, NUT-10/11 P2PK secrets, SIG_ALL signing.
 
-Point math lives in curve.py (pure Python). Schnorr (BIP-340) signing and
-verification use embit, which wraps libsecp256k1 and ships a build for the
-Pi Zero's armv6l CPU.
+Blinding and Schnorr (BIP-340) both use embit's libsecp256k1 bindings, which
+ship a build for the Pi Zero's armv6l CPU. If the compiled library can't load,
+embit falls back to pure Python, but that fallback lacks the point operations
+blinding needs, so blinding then falls back to curve.py (FAST is False).
 """
 
 import hashlib
@@ -10,24 +11,35 @@ import json
 import os
 
 from embit import ec
+from embit.util import secp256k1 as secp
 
 from . import curve
 
 DOMAIN_SEPARATOR = b"Secp256k1_HashToCurve_Cashu_"
 
+# True when embit loaded compiled libsecp256k1 with the point operations we use.
+FAST = all(hasattr(secp, f) for f in ("ec_pubkey_parse", "ec_pubkey_serialize", "ec_pubkey_create",
+                                      "ec_pubkey_combine", "ec_pubkey_negate", "ec_pubkey_tweak_mul"))
+
 
 # ---------------------------------------------------------------- NUT-00
 
-def hash_to_curve(message: bytes):
-    """NUT-00 hash_to_curve. Returns a curve point (x, y)."""
+def _hash_to_curve_sec(message: bytes) -> bytes:
+    """NUT-00 hash_to_curve as a 33-byte compressed point."""
     msg_hash = hashlib.sha256(DOMAIN_SEPARATOR + message).digest()
     for counter in range(2**16):
-        h = hashlib.sha256(msg_hash + counter.to_bytes(4, "little")).digest()
+        sec = b"\x02" + hashlib.sha256(msg_hash + counter.to_bytes(4, "little")).digest()
         try:
-            return curve.parse(b"\x02" + h)
+            secp.ec_pubkey_parse(sec) if FAST else curve.parse(sec)
+            return sec
         except ValueError:
             continue
     raise ValueError("no valid point found")
+
+
+def hash_to_curve(message: bytes):
+    """NUT-00 hash_to_curve. Returns a curve point (x, y)."""
+    return curve.parse(_hash_to_curve_sec(message))
 
 
 def random_scalar() -> int:
@@ -37,23 +49,29 @@ def random_scalar() -> int:
             return k
 
 
-def blind(secret: str, r: int) -> str:
-    """B_ = hash_to_curve(secret) + r*G, as a hex compressed point."""
-    Y = hash_to_curve(secret.encode())
-    return curve.serialize(curve.add(Y, curve.mul(r))).hex()
-
-
 def blind_bytes(x: bytes, r: int) -> str:
-    """Same as blind() but for raw byte secrets (used by the spec test vectors)."""
-    Y = hash_to_curve(x)
-    return curve.serialize(curve.add(Y, curve.mul(r))).hex()
+    """B_ = hash_to_curve(x) + r*G, as a hex compressed point."""
+    Y = _hash_to_curve_sec(x)
+    if not FAST:
+        return curve.serialize(curve.add(curve.parse(Y), curve.mul(r))).hex()
+    rG = secp.ec_pubkey_create(r.to_bytes(32, "big"))
+    return secp.ec_pubkey_serialize(secp.ec_pubkey_combine(secp.ec_pubkey_parse(Y), rG)).hex()
+
+
+def blind(secret: str, r: int) -> str:
+    return blind_bytes(secret.encode(), r)
 
 
 def unblind(C_hex: str, r: int, K_hex: str) -> str:
     """C = C_ - r*K, where K is the mint's public key for this amount."""
-    C_ = curve.parse(bytes.fromhex(C_hex))
-    K = curve.parse(bytes.fromhex(K_hex))
-    return curve.serialize(curve.add(C_, curve.neg(curve.mul(r, K)))).hex()
+    if not FAST:
+        C_ = curve.parse(bytes.fromhex(C_hex))
+        K = curve.parse(bytes.fromhex(K_hex))
+        return curve.serialize(curve.add(C_, curve.neg(curve.mul(r, K)))).hex()
+    rK = secp.ec_pubkey_parse(bytes.fromhex(K_hex))  # fresh buffer: tweak_mul edits it in place
+    secp.ec_pubkey_tweak_mul(rK, r.to_bytes(32, "big"))
+    C_ = secp.ec_pubkey_parse(bytes.fromhex(C_hex))
+    return secp.ec_pubkey_serialize(secp.ec_pubkey_combine(C_, secp.ec_pubkey_negate(rK))).hex()
 
 
 # ---------------------------------------------------------------- NUT-10/11
