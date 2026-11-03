@@ -1,0 +1,3 @@
+# Laptop only: QR window and webcam reader (host_cli --qr/--scan, device_cli --scan/--qr).
+-r requirements.txt
+opencv-python>=4.6

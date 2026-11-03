@@ -31,13 +31,22 @@ def _ur(data: bytes) -> UR:
     return UR("bytes", e.get_bytes())
 
 
-def frames(data: bytes, max_fragment_len: int = FRAME_LEN) -> UREncoder:
-    """Endless frame source: call .next_part() for each QR frame to show.
+class frames:
+    """Endless iterator of uppercase QR frame strings for `data`.
 
-    The first `seq_len` frames carry the data in order; later ones are
+    The first `count` frames carry the data in order; later ones are
     fountain-coded mixes that fill in whatever the reader missed.
     """
-    return UREncoder(_ur(bytes(data)), max_fragment_len)
+
+    def __init__(self, data: bytes, max_fragment_len: int = FRAME_LEN):
+        self._e = UREncoder(_ur(bytes(data)), max_fragment_len)
+        self.count = self._e.fountain_encoder.seq_len()
+
+    def __iter__(self):
+        return self
+
+    def __next__(self) -> str:
+        return self._e.next_part().upper()
 
 
 def single(data: bytes) -> str:

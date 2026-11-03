@@ -63,10 +63,27 @@ def cmd_pubkey(args):
     print(load_device(args).pubkey_hex)
 
 
+def scan_request(source) -> dict:
+    """Read an animated request QR from a camera index or video file."""
+    from nutsigner import qr, qrview, wire  # OpenCV only needed for --scan/--qr
+    a = qr.Assembler()
+    if not qrview.scan(a.add, source, caption=lambda: f"Scanning request: {int(a.progress * 100)}%"):
+        sys.exit("No complete request QR was read.")
+    try:
+        return wire.decode_request(a.result())
+    except ValueError as e:
+        sys.exit(f"REJECTED: unreadable request ({e})")
+
+
 def cmd_sign(args):
     dev = load_device(args, args.max_send)
-    with open(args.request) as f:
-        req = json.load(f)
+    if args.scan is not None:
+        req = scan_request(args.scan)
+    elif args.request:
+        with open(args.request) as f:
+            req = json.load(f)
+    else:
+        sys.exit("Give a request file or --scan.")
     try:
         review = dev.review(req)
     except Rejected as e:
@@ -86,6 +103,11 @@ def cmd_sign(args):
     with open(args.out, "w") as f:
         json.dump(sig, f, indent=2)
     print(f"Signed. Signature written to {args.out}")
+    if args.qr:
+        from nutsigner import qr, qrview, wire
+        print("Showing the signature QR. Close the window once the laptop has it.")
+        qrview.show(iter(lambda: qr.single(wire.encode_signature(sig)), None),
+                    caption="Signature - scan with host_cli submit --scan")
 
 
 def main():
@@ -101,7 +123,11 @@ def main():
     p = sub.add_parser("pubkey", help="print the P2PK public key")
     p.set_defaults(fn=cmd_pubkey)
     p = sub.add_parser("sign", help="review and sign a request")
-    p.add_argument("request")
+    p.add_argument("request", nargs="?", help="request file (or use --scan)")
+    p.add_argument("--scan", nargs="?", const="0", metavar="SOURCE",
+                   type=lambda s: int(s) if s.isdigit() else s,
+                   help="read the animated request QR from a camera (default 0) or a video file")
+    p.add_argument("--qr", action="store_true", help="also show the signature as a QR")
     p.add_argument("-o", "--out", default="signature.json")
     p.add_argument("--max-send", type=int, help="refuse to send more than this")
     p.add_argument("--yes", action="store_true", help="skip the prompt (tests only)")
