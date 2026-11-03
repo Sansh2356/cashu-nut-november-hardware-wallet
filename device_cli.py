@@ -8,9 +8,16 @@ for now; in Week 2-3 they move as QR codes.
   python3 device_cli.py init            # create a new seed (dev only!)
   python3 device_cli.py pubkey          # show the key ecash gets locked to
   python3 device_cli.py sign request.json -o signature.json
+
+  python3 device_cli.py --ask-seed sign request.json   # type the words; never stored
+
+`--ask-seed` is the device flow: the seed lives only in memory for this run
+and the derived pubkey is shown so you can check it. The seed file is for
+laptop development only.
 """
 
 import argparse
+import getpass
 import json
 import os
 import sys
@@ -22,9 +29,16 @@ from nutsigner.device import DeviceSigner, Rejected, summary_lines
 SEED_FILE = os.environ.get("NUTSIGNER_SEED", "device_seed.json")
 
 
-def load_device(max_send=None):
+def load_device(args, max_send=None):
+    if args.ask_seed:
+        mnemonic = " ".join(getpass.getpass("Seed words (kept in memory only): ").lower().split())
+        if not bip39.mnemonic_is_valid(mnemonic):
+            sys.exit("Invalid mnemonic.")
+        dev = DeviceSigner.from_mnemonic(mnemonic, max_send=max_send)
+        print(f"Device pubkey: {dev.pubkey_hex}  <- check this matches", file=sys.stderr)
+        return dev
     if not os.path.exists(SEED_FILE):
-        sys.exit(f"No seed at {SEED_FILE}. Run: python3 device_cli.py init")
+        sys.exit(f"No seed at {SEED_FILE}. Run: python3 device_cli.py init, or use --ask-seed")
     with open(SEED_FILE) as f:
         mnemonic = json.load(f)["mnemonic"]
     return DeviceSigner.from_mnemonic(mnemonic, max_send=max_send)
@@ -46,11 +60,11 @@ def cmd_init(args):
 
 
 def cmd_pubkey(args):
-    print(load_device().pubkey_hex)
+    print(load_device(args).pubkey_hex)
 
 
 def cmd_sign(args):
-    dev = load_device(args.max_send)
+    dev = load_device(args, args.max_send)
     with open(args.request) as f:
         req = json.load(f)
     try:
@@ -76,6 +90,8 @@ def cmd_sign(args):
 
 def main():
     ap = argparse.ArgumentParser(description="NutSigner device (CLI)")
+    ap.add_argument("--ask-seed", action="store_true",
+                    help="type the seed words instead of reading the seed file; nothing is written")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("init", help="create or import a seed")
     p.add_argument("--words", type=int, choices=(12, 24), default=12)
