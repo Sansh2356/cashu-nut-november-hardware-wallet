@@ -10,7 +10,7 @@ Request format (v1), sent by the host:
 {
   "v": 1,
   "type": "swap",
-  "mint": "https://nofee.testnut.cashu.space",
+  "mint": "https://testnut.cashu.space",
   "unit": "sat",
   "inputs":  [{"amount": 8, "id": "00..", "secret": "[\"P2PK\",...]", "C": "02.."}],
   "outputs": [{"amount": 4, "id": "00..", "B_": "03.."}],

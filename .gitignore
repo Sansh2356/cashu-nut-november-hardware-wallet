@@ -1,9 +1,7 @@
 __pycache__/
 *.pyc
 .venv/
-device_seed.json
-host_wallet.json
-host_wallet.json.tmp
-request.json
-signature.json
-host_wallet.json.lock
+# Seeds, wallets (any --wallet name), requests and signatures: never commit.
+/*.json
+*.json.tmp
+*.json.lock
