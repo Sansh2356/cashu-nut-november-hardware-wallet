@@ -6,6 +6,8 @@
   python3 host_cli.py balance
   python3 host_cli.py send 21 -o request.json        # then sign on the device
   python3 host_cli.py submit signature.json           # prints the token to give away
+  python3 host_cli.py send 21 --qr                    # also show the request as an animated QR
+  python3 host_cli.py submit --scan                   # read the signature QR with the webcam
   python3 host_cli.py recover                         # finish an interrupted fund/submit
   python3 host_cli.py cancel                          # drop a pending send (not yet submitted)
   python3 host_cli.py abandon-fund                    # give up on (or archive) an unfinished funding
@@ -36,6 +38,27 @@ def print_tokens(w):
     w.clear_tokens()
 
 
+def scan_signature(source) -> dict:
+    """Read the device's signature QR from a camera index or video file."""
+    from nutsigner import qr, qrview, wire  # OpenCV only needed for --qr/--scan
+    found = {}
+
+    def done(text):
+        try:
+            found["sig"] = wire.decode_signature(qr.read_single(text))
+            return True
+        except ValueError:
+            return False
+
+    if not qrview.scan(done, source, caption=lambda: "Show the signature QR - Esc to cancel"):
+        raise WalletError("no signature QR was read")
+    return found["sig"]
+
+
+def camera_source(s: str):
+    return int(s) if s.isdigit() else s
+
+
 def main():
     ap = argparse.ArgumentParser(description="NutSigner host wallet")
     ap.add_argument("--mint", default=DEFAULT_MINT)
@@ -50,8 +73,11 @@ def main():
     p.add_argument("amount", type=int)
     p.add_argument("--to", help="lock the payment to this recipient pubkey (optional)")
     p.add_argument("-o", "--out", default="request.json")
+    p.add_argument("--qr", action="store_true", help="show the request as an animated QR")
     p = sub.add_parser("submit")
-    p.add_argument("signature")
+    p.add_argument("signature", nargs="?", help="signature file (or use --scan)")
+    p.add_argument("--scan", nargs="?", const="0", metavar="SOURCE", type=camera_source,
+                   help="read the signature QR from a camera (default 0) or a video file")
     sub.add_parser("recover")
     sub.add_parser("cancel")
     sub.add_parser("abandon-fund")
@@ -101,12 +127,23 @@ def main():
                                   "written anywhere; run cancel, then send again.") from None
             print(f"Request written to {args.out} ({len(req['inputs'])} inputs, "
                   f"{len(req['outputs'])} outputs). Sign it on the device.")
+            if args.qr:
+                from nutsigner import qr, qrview, wire
+                frames = qr.frames(wire.encode_request(req))
+                print(f"Showing the request as an animated QR ({frames.count} frames). "
+                      "Close the window once the device has it.")
+                qrview.show(frames, caption="Scan with NutSigner - Esc to close")
         elif args.cmd == "submit":
-            try:
-                with open(args.signature) as f:
-                    sig = json.load(f)
-            except (OSError, ValueError) as e:
-                raise WalletError(f"cannot read signature file {args.signature}: {e}") from None
+            if args.scan is not None:
+                sig = scan_signature(args.scan)
+            elif args.signature:
+                try:
+                    with open(args.signature) as f:
+                        sig = json.load(f)
+                except (OSError, ValueError) as e:
+                    raise WalletError(f"cannot read signature file {args.signature}: {e}") from None
+            else:
+                raise WalletError("give a signature file or --scan")
             print_send_result(w.submit(sig))
             print(f"\nBalance: {w.balance()} sat.")
         elif args.cmd == "recover":
