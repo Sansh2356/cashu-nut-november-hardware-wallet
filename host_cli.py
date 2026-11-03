@@ -10,7 +10,7 @@
   python3 host_cli.py cancel                          # drop a pending send (not yet submitted)
   python3 host_cli.py abandon-fund                    # give up on (or archive) an unfinished funding
 
-Defaults to the no-fee testnut mint, which issues fake, unbacked ecash.
+Defaults to the testnut mint, which issues fake, unbacked ecash (input fee 100 ppk).
 Each wallet file belongs to one mint: use a different --wallet per mint.
 """
 
@@ -21,7 +21,7 @@ import sys
 from nutsigner.host import HostWallet, WalletError
 from nutsigner.mint import MintClient, MintError, MintUnavailable
 
-DEFAULT_MINT = "https://nofee.testnut.cashu.space"
+DEFAULT_MINT = "https://testnut.cashu.space"
 
 
 def print_send_result(result):

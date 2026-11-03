@@ -19,7 +19,7 @@ This is the Week 1 code: the signing core, a host wallet, and a command-line
 | Device review and signing | Done, with attack tests |
 | Host wallet (fund, send, submit) | Done; tested against an in-process mint |
 | Crash recovery (NUT-07, NUT-09) | Done; interrupted mints and swaps recover |
-| Real testnut mint | **Not yet run. This is your first step.** |
+| Real testnut mint | Works (2026-11-03, cdk-mintd 0.18.1): fund, SIG_ALL swap, change; unsigned spend refused |
 | Pi Zero UI, QR transport | Week 2–3 |
 
 ## Setup (laptop)
@@ -32,7 +32,9 @@ python3 -m unittest discover -s tests -t . -v     # 61 tests should pass
 
 ## First run against the real testnut mint
 
-The no-fee testnut mint issues fake, unbacked ecash and pays its own invoices.
+The testnut mint (the default) issues fake, unbacked ecash and pays its own
+invoices. It charges a 100 ppk input fee, so a send costs about 1 sat. (The old
+no-fee mint, `nofee.testnut.cashu.space`, no longer exists.)
 
 ```bash
 python3 device_cli.py init                  # creates device_seed.json (dev only!)
@@ -43,15 +45,17 @@ python3 host_cli.py fund 100 --pubkey $PK   # mints 100 sat locked to the device
 python3 host_cli.py send 21 -o request.json
 python3 device_cli.py sign request.json -o signature.json   # review, type y
 python3 host_cli.py submit signature.json   # prints a cashuA token for the recipient
-python3 host_cli.py balance                 # 79
+python3 host_cli.py balance                 # 78 (100 - 21 - 1 sat fee)
 ```
 
 Paste the printed token into any Cashu wallet (for example cashu.me) to check it
 redeems.
 
-**Each wallet file belongs to one mint.** To test with input fees, use a new
-file: `--mint https://testnut.cashu.space --wallet testnut_fees.json`. Using
-the same file with another mint is refused.
+**Each wallet file belongs to one mint.** Use a different `--wallet` file per
+mint; using the same file with another mint is refused.
+
+If every mint request hangs for about a minute, your machine's IPv6 route is
+probably broken: Python tries IPv6 first and waits for it to time out.
 
 ### If a command is interrupted
 

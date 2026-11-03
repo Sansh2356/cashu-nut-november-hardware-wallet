@@ -636,7 +636,8 @@ class TestCliErrors(unittest.TestCase):
             f.write("{corrupt")
         self.assertIn("Error:", self.run_cli("--wallet", wp, "balance"))
         os.remove(wp)
-        w = HostWallet(wp, self.mint, "https://nofee.testnut.cashu.space")
+        import host_cli
+        w = HostWallet(wp, self.mint, host_cli.DEFAULT_MINT)
         w.fund(10, DeviceSigner.from_mnemonic(MNEMONIC).pubkey_hex)
         w.close()
         msg = self.run_cli("--wallet", wp, "send", "3", "-o", "/nonexistent/dir/r.json")
