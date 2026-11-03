@@ -48,9 +48,12 @@ class DeviceSigner:
     def from_mnemonic(cls, mnemonic: str, passphrase: str = "", **kw):
         if not bip39.mnemonic_is_valid(mnemonic):
             raise ValueError("invalid BIP-39 mnemonic")
-        seed = bip39.mnemonic_to_seed(mnemonic, passphrase)
-        root = bip32.HDKey.from_seed(seed)
-        return cls(root.derive(DERIVATION_PATH).key, **kw)
+        return cls.from_seed_bytes(bip39.mnemonic_to_seed(mnemonic, passphrase), **kw)
+
+    @classmethod
+    def from_seed_bytes(cls, seed: bytes, **kw):
+        """From a BIP-39 seed (e.g. SeedSigner's Seed.seed_bytes, passphrase included)."""
+        return cls(bip32.HDKey.from_seed(seed).derive(DERIVATION_PATH).key, **kw)
 
     # ------------------------------------------------------------ review
 
