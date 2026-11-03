@@ -98,5 +98,27 @@ class TestNut11(unittest.TestCase):
             self.assertEqual(ours, theirs)
 
 
+class TestBlindingBackends(unittest.TestCase):
+    """Compiled libsecp256k1 and the curve.py fallback must agree exactly."""
+
+    def test_fast_path_loaded(self):
+        self.assertTrue(crypto.FAST, "embit's compiled libsecp256k1 did not load")
+
+    def test_fallback_matches_fast(self):
+        import os
+        from unittest import mock
+        cases = []
+        for _ in range(50):
+            x, r, k = os.urandom(32), crypto.random_scalar(), crypto.random_scalar()
+            K = curve.serialize(curve.mul(k)).hex()
+            B_ = crypto.blind_bytes(x, r)
+            cases.append((x, r, K, B_, crypto.unblind(B_, r, K)))
+        with mock.patch.object(crypto, "FAST", False):
+            TestNut00("test_blinded_messages").test_blinded_messages()  # spec vectors, fallback path
+            for x, r, K, B_, C in cases:
+                self.assertEqual(crypto.blind_bytes(x, r), B_)
+                self.assertEqual(crypto.unblind(B_, r, K), C)
+
+
 if __name__ == "__main__":
     unittest.main()
