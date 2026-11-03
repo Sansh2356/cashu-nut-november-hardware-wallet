@@ -20,14 +20,17 @@ This is the Week 1 code: the signing core, a host wallet, and a command-line
 | Host wallet (fund, send, submit) | Done; tested against an in-process mint |
 | Crash recovery (NUT-07, NUT-09) | Done; interrupted mints and swaps recover |
 | Real testnut mint | Works (2026-11-03, cdk-mintd 0.18.1): fund, SIG_ALL swap, change; unsigned spend refused |
-| Pi Zero UI, QR transport | Week 2–3 |
+| Compact v2 wire format | Done; a 1-input, 7-output request is 1134 bytes (v1 JSON: 3305) |
+| QR transport (BC-UR) | Done on the laptop: animated request QR, single signature QR, webcam/video reader |
+| Fast blinding | Done; `sign()` 1.1 ms on a laptop (was 46 ms) via libsecp256k1 |
+| Pi Zero UI (SeedSigner fork) | Week 2 |
 
 ## Setup (laptop)
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-python3 -m unittest discover -s tests -t . -v     # 61 tests should pass
+pip install -r requirements-host.txt               # device-only installs need just requirements.txt
+python3 -m unittest discover -s tests -t . -v     # 79 tests should pass
 ```
 
 ## First run against the real testnut mint
@@ -140,6 +143,21 @@ doesn't match, the request is rejected. Each verified output is classified as:
 
 The signature is returned as `{"v":1, "pubkey", "msg_hash", "signature"}`.
 
+### Over QR (v2)
+
+For QR codes the same request is packed into a compact binary format
+(`nutsigner/wire.py`): varints, a keyset table listed once, raw points, and
+compact P2PK/bearer secrets. It travels as an animated BC-UR `ur:bytes` QR,
+and the 132-byte signature comes back as a single QR (`nutsigner/qr.py`).
+
+```bash
+python3 host_cli.py send 21 --qr                  # window loops the animated request QR
+python3 device_cli.py --ask-seed sign --scan --qr  # laptop stand-in for the device: webcam in, QR out
+python3 host_cli.py submit --scan                  # webcam reads the signature QR
+```
+
+`--scan` also accepts a video file, e.g. a phone recording of the screen.
+
 ### Key derivation
 
 The P2PK key is derived from a BIP-39 seed at `m/129372'/11'/0'/0/0`. This path
@@ -161,17 +179,22 @@ mint reject the swap.
 - **Keyset ids.** The `SIG_ALL` message covers amounts and `B_`, but not each
   output's keyset `id`. A host could ask the mint to sign change under a
   different keyset of the same mint. It can't steal funds that way.
-- **Physical attacks.** The Pi Zero is not a secure element, and `curve.py` is
-  not constant-time (used only for blinding, never for the signing key).
-- `device_seed.json` is a plain file. On the real device, the seed should only
-  live in RAM, as SeedSigner does.
+- **Physical attacks.** The Pi Zero is not a secure element. Blinding uses
+  libsecp256k1; `curve.py` (not constant-time) is only a fallback, and never
+  touches the signing key.
+- `device_seed.json` is a plain file, for laptop development only. Use
+  `device_cli.py --ask-seed` to keep the seed in memory; on the Pi, the
+  SeedSigner fork loads it from SeedQR or typed words and keeps it in RAM.
 
 ## Layout
 
 ```
-nutsigner/curve.py    secp256k1 point math, pure Python (blinding)
-nutsigner/crypto.py   hash_to_curve, P2PK secrets, SIG_ALL message, Schnorr (embit)
+nutsigner/curve.py    secp256k1 point math, pure Python (fallback, test mint)
+nutsigner/crypto.py   hash_to_curve, blinding, P2PK secrets, SIG_ALL message, Schnorr (embit)
 nutsigner/device.py   review + sign. This is what runs on the Pi.
+nutsigner/wire.py     compact v2 request/signature format for QR
+nutsigner/qr.py       BC-UR frames (nutsigner/ur2: vendored from SeedSigner)
+nutsigner/qrview.py   laptop QR window and webcam/video reader (OpenCV)
 nutsigner/mint.py     mint HTTP client (stdlib only)
 nutsigner/host.py     host wallet: fund, send, submit
 device_cli.py         device as a terminal app
@@ -181,16 +204,14 @@ tests/                spec vectors, flow + attack tests, crash-recovery tests, o
 
 ## On the Pi Zero 1.3
 
-`device.py`, `crypto.py` and `curve.py` need only `embit`, which ships a
-prebuilt libsecp256k1 for armv6l. Copy the `nutsigner/` folder and
-`device_cli.py` to the Pi and run the same commands over SSH.
+`device.py`, `crypto.py`, `curve.py`, `wire.py` and `qr.py` need only `embit`,
+which ships a prebuilt libsecp256k1 for armv6l. Copy the `nutsigner/` folder
+and `device_cli.py` to the Pi and run the same commands over SSH.
 
-Week 2 replaces the terminal with the 240×240 screen and buttons, and the JSON
-files with QR codes.
+The SeedSigner fork replaces the terminal with the 240×240 screen, buttons and
+camera.
 
 An iterative demo for progress till now - 
-
-
 
 https://github.com/user-attachments/assets/1389ff44-1923-4f79-9fd8-399096adaa37
 

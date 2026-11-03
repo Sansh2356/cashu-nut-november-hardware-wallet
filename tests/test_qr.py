@@ -16,15 +16,15 @@ class TestQR(unittest.TestCase):
     def test_in_order_frames(self):
         enc = qr.frames(self.data)
         a = qr.Assembler()
-        while not a.add(enc.next_part()):
+        while not a.add(next(enc)):
             pass
         self.assertEqual(wire.decode_request(a.result()), self.req)
 
     def test_shuffled_with_dropped_frames(self):
         rnd = random.Random(7)
         enc = qr.frames(self.data)
-        n = enc.fountain_encoder.seq_len()
-        sent = [enc.next_part() for _ in range(n * 3)]   # a few loops of the animation
+        n = enc.count
+        sent = [next(enc) for _ in range(n * 3)]   # a few loops of the animation
         rnd.shuffle(sent)
         kept = [f for f in sent if rnd.random() > 0.4]    # the camera misses 40%
         a = qr.Assembler()
@@ -37,7 +37,7 @@ class TestQR(unittest.TestCase):
         a = qr.Assembler()
         for junk in ("", "hello", "UR:BYTES/1-9/LPADAX", "UR:CRYPTO-PSBT/xyz", "ur:bytes/zz"):
             self.assertFalse(a.add(junk))
-        self.assertFalse(a.add(enc.next_part()))
+        self.assertFalse(a.add(next(enc)))
         self.assertLess(a.progress, 1.0)
         with self.assertRaises(qr.QRError):
             a.result()
@@ -58,8 +58,8 @@ class TestQR(unittest.TestCase):
     def test_frame_counts(self):
         for n in (80, 120, 150):
             print(f"\n  {len(self.data)}-byte request at {n} bytes/frame: "
-                  f"{qr.frames(self.data, n).fountain_encoder.seq_len()} frames, "
-                  f"{len(qr.frames(self.data, n).next_part())} chars each", end="")
+                  f"{qr.frames(self.data, n).count} frames, "
+                  f"{len(next(qr.frames(self.data, n)))} chars each", end="")
 
 
 if __name__ == "__main__":
