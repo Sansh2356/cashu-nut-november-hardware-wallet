@@ -191,7 +191,7 @@ class DeviceSigner:
         }
 
     def _review_melt(self, req, in_total, kinds):
-        if "unverified" in kinds or set(kinds) - {"change"}:
+        if set(kinds) - {"change"}:
             raise Rejected("a melt may only return change to this device")
         if req.get("unit") != "sat":
             raise Rejected("melt is only supported in sat")
@@ -210,12 +210,17 @@ class DeviceSigner:
         if inv_amount != amount:
             raise Rejected(f"invoice is for {inv_amount} sat but the quote says {amount}")
         # Limitation: offline, the device cannot check that the quote id belongs
-        # to this invoice; only the mint knows. The mint pays the invoice it
-        # stored with the quote, so a host could show one invoice and melt
-        # another quote of the same amount. The signature covers the quote id,
-        # so it can't be reused for any other quote.
+        # to this invoice, or that fee_reserve is the mint's; only the mint
+        # knows. The mint pays the invoice it stored with the quote and keeps
+        # at most its own fee reserve, so a host could show one invoice and
+        # melt another quote of the same amount, or understate the fee. The
+        # signature covers the quote id, so it can't be reused for another quote.
         if in_total < amount + fee_reserve:
             raise Rejected("inputs do not cover the amount and the fee reserve")
+        # Enough blank outputs to return everything not paid to the invoice;
+        # with fewer, the mint would keep the overpaid rest.
+        if len(req["outputs"]) < (in_total - amount).bit_length():
+            raise Rejected("too few change outputs for the overpaid amount")
         if self.max_send is not None and amount + fee_reserve > self.max_send:
             raise Rejected(f"paying {amount + fee_reserve} exceeds this device's limit of {self.max_send}")
         return {

@@ -400,8 +400,9 @@ class HostWallet:
         if not (isinstance(q.get("quote"), str) and isinstance(amount, int) and amount > 0
                 and isinstance(fee_reserve, int) and fee_reserve >= 0):
             raise MintUnavailable("mint sent a malformed melt quote")
-        inputs, overpaid = self._select(amount + fee_reserve)
-        overpaid += fee_reserve  # most that can come back: fee reserve unused, plus selection excess
+        inputs, _ = self._select(amount + fee_reserve)
+        # enough blank outputs for all of it to come back (the device checks)
+        overpaid = sum(p["amount"] for p in inputs) - amount
         outs = self._make_outputs([0] * overpaid.bit_length(), self._active_keyset()["id"],
                                   lambda: crypto.make_p2pk_secret(device_pk, "SIG_ALL"), "change")
         return self._new_pending({"v": 1, "type": "melt", "mint": self.mint_url, "unit": self.unit,
@@ -528,12 +529,19 @@ class HostWallet:
     def _finish_melt(self, q):
         """Keep the change the mint signed for the unused fee reserve. Returns (preimage, change)."""
         pend = self.state["pending"]
-        sigs = q.get("change") or []
-        if not isinstance(sigs, list) or len(sigs) > len(pend["outputs"]):
+        sigs, outs = q.get("change"), pend["outputs"]
+        if not sigs and outs:
+            # some mints leave change out of the quote state; NUT-09 still has it
+            try:
+                got = self.mint.restore(_blinded(outs))
+            except MintRejected:
+                got = {}
+            outs = [o for o in outs if o["B_"] in got]
+            sigs = [got[o["B_"]] for o in outs]
+        if not isinstance(sigs, list) or len(sigs) > len(outs):
             raise MintError("mint returned malformed melt change")
         # NUT-08: the mint signs the first blank outputs and picks their amounts
-        outs = [dict(o, amount=s.get("amount") if isinstance(s, dict) else None)
-                for o, s in zip(pend["outputs"], sigs)]
+        outs = [dict(o, amount=s.get("amount") if isinstance(s, dict) else None) for o, s in zip(outs, sigs)]
         change = self._unblind(outs, sigs)
         spent = {p["secret"] for p in pend["request"]["inputs"]}
         self.state["proofs"] = [p for p in self.state["proofs"] if p["secret"] not in spent] + change

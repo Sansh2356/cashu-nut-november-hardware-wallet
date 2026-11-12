@@ -317,6 +317,14 @@ class TestMeltRecovery(Base):
         w = self.reopen()
         self.assert_paid(w, w.submit(self.sig))
 
+    def test_change_from_restore_when_quote_state_lacks_it(self):
+        self.mint.fail["melt"] = "after"
+        with self.assertRaises(MintUnavailable):
+            self.w.submit(self.sig)
+        orig = self.real.melt_quote_state
+        self.real.melt_quote_state = lambda q: dict(orig(q), change=None)
+        self.assert_paid(self.w, self.w.recover()["melt_result"])
+
     def test_melt_never_reached_mint(self):
         self.mint.fail["melt"] = "before"
         with self.assertRaises(MintUnavailable):
