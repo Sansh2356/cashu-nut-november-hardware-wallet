@@ -65,10 +65,10 @@ class TestQRLoop(unittest.TestCase):
         req = w.build_send_request(21)
         w.close()
 
-        # host screen -> device camera: 3 loops of the animation, 30% of frames lost
+        # host screen -> device camera: 4 loops of the animation, 30% of frames lost
         frames = qr.frames(wire.encode_request(req))
         req_video = os.path.join(tmp, "request.avi")
-        record(req_video, [next(frames) for _ in range(frames.count * 3)], drop=0.3)
+        record(req_video, [next(frames) for _ in range(frames.count * 4)], drop=0.3)
 
         seed = os.path.join(tmp, "seed.json")
         with open(seed, "w") as f:
@@ -88,6 +88,26 @@ class TestQRLoop(unittest.TestCase):
             out = run(host_cli, ["host_cli.py", "--wallet", wallet, "submit", "--scan", sig_video])
         self.assertIn("Swap accepted", out)
         self.assertIn("Balance: 43 sat", out)
+
+
+def dim_lcd(text, size=200, lo=30, hi=70, bg=150, W=1280, H=720):
+    """A 720p webcam frame of the Pi's dim LCD QR: small, low contrast, blurred, noisy."""
+    import numpy as np
+    img = cv2.resize(qrview.render(text, size), (size, size), interpolation=cv2.INTER_AREA)
+    frame = np.full((H, W), bg, np.float32)
+    y, x = (H - size) // 2, (W - size) // 2
+    frame[y:y + size, x:x + size] = lo + img.astype(np.float32) / 255 * (hi - lo)
+    frame = cv2.GaussianBlur(frame, (3, 3), 0) + np.random.default_rng(1).normal(0, 2, frame.shape)
+    return cv2.cvtColor(np.clip(frame, 0, 255).astype(np.uint8), cv2.COLOR_GRAY2BGR)
+
+
+@unittest.skipIf(cv2 is None, "OpenCV not installed (pip install -r requirements-host.txt)")
+class TestDimSignature(unittest.TestCase):
+    def test_reads_dim_lcd_qr(self):
+        text = qr.single(b"\x01" * 132)  # signature-sized
+        frame = dim_lcd(text)
+        self.assertEqual(cv2.QRCodeDetector().detectAndDecode(frame)[0], "")  # why decode() exists
+        self.assertEqual(qrview.decode(frame), text)
 
 
 if __name__ == "__main__":

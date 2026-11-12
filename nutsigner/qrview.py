@@ -48,6 +48,33 @@ def show(frames, fps: float = 5, caption: str = "Esc or q to close"):
             pass
 
 
+_detectors = []
+
+
+def decode(frame) -> str:
+    """Text of the QR code in a camera frame, or "".
+
+    The plain detector misses the Pi's dim LCD at webcam distance (small,
+    low contrast). Then try a contrast stretch, a 2x upscale, and OpenCV's
+    Aruco-based detector, cheapest first.
+    """
+    if not _detectors:
+        _detectors.append(cv2.QRCodeDetector())
+        if hasattr(cv2, "QRCodeDetectorAruco"):  # OpenCV >= 4.8
+            _detectors.append(cv2.QRCodeDetectorAruco())
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if frame.ndim == 3 else frame
+    stretched = cv2.normalize(gray, None, 0, 255, cv2.NORM_MINMAX)
+    for img in (gray, stretched, cv2.resize(stretched, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)):
+        for det in _detectors:
+            try:
+                text = det.detectAndDecode(img)[0]
+            except cv2.error:  # OpenCV's decoder can assert on damaged codes
+                text = ""
+            if text:
+                return text
+    return ""
+
+
 def scan(done, source=0, preview=None, caption=lambda: "Point the camera at the QR"):
     """Feed every decoded QR string to `done(text)` until it returns True.
 
@@ -60,16 +87,15 @@ def scan(done, source=0, preview=None, caption=lambda: "Point the camera at the 
     cap = cv2.VideoCapture(source)
     if not cap.isOpened():
         raise OSError(f"cannot open camera or video {source!r}")
-    det = cv2.QRCodeDetector()
+    if isinstance(source, int):  # the default 640x480 is too coarse for the Pi's small QR
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
     try:
         while True:
             ok, frame = cap.read()
             if not ok:
                 return False
-            try:
-                text, _, _ = det.detectAndDecode(frame)
-            except cv2.error:  # OpenCV's decoder can assert on damaged codes
-                text = ""
+            text = decode(frame)
             if text and done(text):
                 return True
             if preview:
