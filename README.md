@@ -24,14 +24,15 @@ This is the Week 1 code: the signing core, a host wallet, and a command-line
 | QR transport (BC-UR) | Done on the laptop: animated request QR, single signature QR, webcam/video reader |
 | Fast blinding | Done; `sign()` 1.1 ms on a laptop (was 46 ms) via libsecp256k1 |
 | Melt (pay a Lightning invoice) | Done: NUT-05 bolt11 + NUT-08 change + `SIG_ALL`; works on testnut (2026-11-12) |
-| Pi Zero UI (SeedSigner fork) | Week 2 |
+| Receive (locked to this device) | Done: `send --to` locks to the recipient's device with `SIG_ALL`; `receive` swaps it into fresh locked coins |
+| Pi Zero UI (SeedSigner fork) | Swap, receive and melt screens; see `docs/DEMO.md` |
 
 ## Setup (laptop)
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-host.txt               # device-only installs need just requirements.txt
-python3 -m unittest discover -s tests -t . -v     # 113 tests; the testnut one skips by default
+python3 -m unittest discover -s tests -t . -v     # the testnut tests skip by default
 NUTSIGNER_TESTNUT=1 python3 -m pytest -q -k testnut   # optional: a real melt on testnut
 ```
 
@@ -63,6 +64,24 @@ python3 host_cli.py melt lnbc100n1... -o request.json      # gets a melt quote; 
 python3 device_cli.py sign request.json -o signature.json  # shows: Pay 10 sat (Lightning), max fee, sats at risk
 python3 host_cli.py submit signature.json                  # pays, keeps the unused fee reserve as change
 ```
+
+To pay another NutSigner user, lock the coins to their device key. They
+receive the token with their own wallet file and device:
+
+```bash
+python3 host_cli.py send 21 --to <their device pubkey>   # sign, submit, hand over the token
+# the recipient (a new wallet takes --pubkey once):
+python3 host_cli.py --wallet bob.json receive cashuA... --pubkey <bob's pubkey>
+python3 device_cli.py sign request.json -o signature.json  # shows: Receive 21 sat, Fee 1 sat
+python3 host_cli.py --wallet bob.json submit signature.json
+```
+
+`receive` accepts only cashuA tokens from this wallet's mint whose proofs are
+all P2PK `SIG_ALL` locked to this wallet's device key and still unspent. Until
+the swap, the sender knows the proofs too (but can't spend them without the
+recipient's device), so receive promptly. A token that isn't locked is
+refused: redeem it in any Cashu wallet. `send --to` locks with `SIG_ALL`,
+which a NutSigner device can sign; a regular Cashu wallet may not support it.
 
 **Each wallet file belongs to one mint.** Use a different `--wallet` file per
 mint; using the same file with another mint is refused.

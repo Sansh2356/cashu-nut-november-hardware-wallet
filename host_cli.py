@@ -9,6 +9,7 @@
   python3 host_cli.py send 21 --qr                    # also show the request as an animated QR
   python3 host_cli.py submit --scan                   # read the signature QR with the webcam
   python3 host_cli.py melt lnbc... --qr               # pay a Lightning invoice; then sign and submit
+  python3 host_cli.py receive cashuA... --qr          # take a token sent to your device (send --to)
   python3 host_cli.py recover                         # finish an interrupted fund/submit
   python3 host_cli.py cancel                          # drop a pending send (not yet submitted)
   python3 host_cli.py abandon-fund                    # give up on (or archive) an unfinished funding
@@ -29,7 +30,10 @@ DEFAULT_MINT = "https://testnut.cashu.space"
 
 def print_send_result(result):
     token, sent, change = result
-    print(f"Swap accepted. Change kept: {sum(p['amount'] for p in change)} sat.")
+    if not sent:
+        print(f"Received {sum(p['amount'] for p in change)} sat, locked to your device.")
+    else:
+        print(f"Swap accepted. Change kept: {sum(p['amount'] for p in change)} sat.")
 
 
 def print_melt_result(result):
@@ -95,11 +99,16 @@ def main():
     sub.add_parser("balance")
     p = sub.add_parser("send")
     p.add_argument("amount", type=int)
-    p.add_argument("--to", help="lock the payment to this recipient pubkey (optional)")
+    p.add_argument("--to", help="lock the payment to this recipient's NutSigner device pubkey (optional)")
     p.add_argument("-o", "--out", default="request.json")
     p.add_argument("--qr", action="store_true", help="show the request as an animated QR")
     p = sub.add_parser("melt", help="pay a bolt11 Lightning invoice")
     p.add_argument("invoice")
+    p.add_argument("-o", "--out", default="request.json")
+    p.add_argument("--qr", action="store_true", help="show the request as an animated QR")
+    p = sub.add_parser("receive", help="receive a cashuA token locked to your device (send --to)")
+    p.add_argument("token")
+    p.add_argument("--pubkey", help="device pubkey, for a wallet that has none yet")
     p.add_argument("-o", "--out", default="request.json")
     p.add_argument("--qr", action="store_true", help="show the request as an animated QR")
     p = sub.add_parser("submit")
@@ -150,6 +159,11 @@ def main():
         elif args.cmd == "melt":
             req = w.build_melt_request(args.invoice)
             print(f"Quote {req['quote']}: pay {req['amount']} sat, fee reserve {req['fee_reserve']} sat.")
+            write_request(req, args.out, args.qr)
+        elif args.cmd == "receive":
+            req = w.build_receive_request(args.token, args.pubkey)
+            total = sum(p["amount"] for p in req["inputs"])
+            print(f"Receiving {total} sat (mint fee {total - sum(o['amount'] for o in req['outputs'])} sat).")
             write_request(req, args.out, args.qr)
         elif args.cmd == "submit":
             if args.scan is not None:
