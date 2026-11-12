@@ -23,6 +23,7 @@ This is the Week 1 code: the signing core, a host wallet, and a command-line
 | Compact v2 wire format | Done; a 1-input, 7-output request is 1134 bytes (v1 JSON: 3305) |
 | QR transport (BC-UR) | Done on the laptop: animated request QR, single signature QR, webcam/video reader |
 | Fast blinding | Done; `sign()` 1.1 ms on a laptop (was 46 ms) via libsecp256k1 |
+| Melt (pay a Lightning invoice) | Done: NUT-05 bolt11 + NUT-08 change + `SIG_ALL`; works on testnut (2026-11-12) |
 | Pi Zero UI (SeedSigner fork) | Week 2 |
 
 ## Setup (laptop)
@@ -30,7 +31,8 @@ This is the Week 1 code: the signing core, a host wallet, and a command-line
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-host.txt               # device-only installs need just requirements.txt
-python3 -m unittest discover -s tests -t . -v     # 79 tests should pass
+python3 -m unittest discover -s tests -t . -v     # 104 tests; the testnut one skips by default
+NUTSIGNER_TESTNUT=1 python3 -m pytest -q -k testnut   # optional: a real melt on testnut
 ```
 
 ## First run against the real testnut mint
@@ -54,6 +56,14 @@ python3 host_cli.py balance                 # 78 (100 - 21 - 1 sat fee)
 Paste the printed token into any Cashu wallet (for example cashu.me) to check it
 redeems.
 
+To pay a Lightning invoice (testnut's fake Lightning backend "pays" anything):
+
+```bash
+python3 host_cli.py melt lnbc100n1... -o request.json      # gets a melt quote; add --qr for QR
+python3 device_cli.py sign request.json -o signature.json  # shows: Pay 10 sat (Lightning), max fee, change
+python3 host_cli.py submit signature.json                  # pays, keeps the unused fee reserve as change
+```
+
 **Each wallet file belongs to one mint.** Use a different `--wallet` file per
 mint; using the same file with another mint is refused.
 
@@ -72,7 +82,9 @@ python3 host_cli.py recover
 ```
 
 It asks the mint to re-send signatures it already issued (NUT-09) or confirms
-via NUT-07 that the swap never happened. In that case, `submit` the same
+via NUT-07 that the swap never happened. For a payment (melt) it asks for the
+melt quote's state: paid (keep the change), still pending (run recover again
+later) or unpaid with the inputs untouched. In that case, `submit` the same
 signature again or `cancel`. Running `submit` again also recovers
 automatically. `cancel` is refused while an outcome is unknown. A mint refusal
 (4xx) is not trusted to mean "nothing happened": the wallet checks with the mint
@@ -143,6 +155,28 @@ doesn't match, the request is rejected. Each verified output is classified as:
 
 The signature is returned as `{"v":1, "pubkey", "msg_hash", "signature"}`.
 
+### Paying an invoice (melt)
+
+A melt request is the same with `"type": "melt"` plus `"invoice"`, `"quote"`,
+`"amount"` and `"fee_reserve"` from the mint's melt quote. Its outputs are
+NUT-08 blank outputs (amount 0) that carry back the unused fee reserve; the
+mint chooses their amounts. The device:
+
+- decodes the bolt11 invoice itself and requires its amount to equal the
+  quote's (invoices without an amount are refused),
+- requires every output to be revealed change locked back to itself, and
+  enough of them to return everything not paid to the invoice,
+- checks the inputs cover amount + fee reserve, and applies `--max-send` to
+  amount + fee reserve,
+- signs `SIG_ALL` over inputs, outputs and the quote id, so the signature
+  can't be used for any other quote.
+
+**Limitation:** offline, the device can't check that the quote id belongs to
+the invoice it shows, or that the fee reserve is the mint's real one. The mint
+pays the invoice it stored with the quote and keeps at most its own fee
+reserve. A lying host could therefore show one invoice and spend on another
+quote of the same amount, or show a lower max fee than the mint will charge.
+
 ### Over QR (v2)
 
 For QR codes the same request is packed into a compact binary format
@@ -193,6 +227,7 @@ nutsigner/curve.py    secp256k1 point math, pure Python (fallback, test mint)
 nutsigner/crypto.py   hash_to_curve, blinding, P2PK secrets, SIG_ALL message, Schnorr (embit)
 nutsigner/device.py   review + sign. This is what runs on the Pi.
 nutsigner/wire.py     compact v2 request/signature format for QR
+nutsigner/bolt11.py   minimal invoice reader (amount, payment hash) for the device
 nutsigner/qr.py       BC-UR frames (nutsigner/ur2: vendored from SeedSigner)
 nutsigner/qrview.py   laptop QR window and webcam/video reader (OpenCV)
 nutsigner/mint.py     mint HTTP client (stdlib only)
@@ -204,7 +239,7 @@ tests/                spec vectors, flow + attack tests, crash-recovery tests, o
 
 ## On the Pi Zero 1.3
 
-`device.py`, `crypto.py`, `curve.py`, `wire.py` and `qr.py` need only `embit`,
+`device.py`, `bolt11.py`, `crypto.py`, `curve.py`, `wire.py` and `qr.py` need only `embit`,
 which ships a prebuilt libsecp256k1 for armv6l. Copy the `nutsigner/` folder
 and `device_cli.py` to the Pi and run the same commands over SSH.
 
