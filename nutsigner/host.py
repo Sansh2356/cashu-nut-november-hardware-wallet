@@ -41,6 +41,10 @@ class WalletError(Exception):
     pass
 
 
+class WalletBusy(WalletError):
+    """Another process (or wallet object) holds this wallet file."""
+
+
 class RestoreUnsupported(WalletError):
     """The mint refused NUT-09 restore."""
 
@@ -112,7 +116,7 @@ class HostWallet:
             try:
                 fcntl.flock(self._lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
-                raise WalletError(f"{path} is in use by another process; try again when it finishes") from None
+                raise WalletBusy(f"{path} is in use by another process; try again when it finishes") from None
             if os.path.exists(path):
                 with open(path) as f:
                     self.state = json.load(f)
@@ -224,6 +228,21 @@ class HostWallet:
 
     def fund(self, amount: int, device_pubkey: str, wait_s: int = 120, on_invoice=None):
         """Mint new ecash directly locked to the device's key with SIG_ALL."""
+        q = self.start_fund(amount, device_pubkey)
+        if on_invoice:
+            on_invoice(q["request"])
+        deadline = time.time() + wait_s
+        while not quote_is_paid(q):
+            if time.time() > deadline:
+                raise WalletError(f"invoice not paid yet (quote {q['quote']}); "
+                                  "once it is paid, run recover")
+            time.sleep(2)
+            q = self.mint.mint_quote_state(q["quote"])
+        return self._recover_fund()
+
+    def start_fund(self, amount: int, device_pubkey: str) -> dict:
+        """Get a mint quote and record it as pending_fund. Returns the quote (its
+        "request" is the invoice to pay); recover() finishes it once paid."""
         device_pubkey = check_pubkey(device_pubkey, "device pubkey")
         known = self.state.get("device_pubkey")
         if known and known != device_pubkey:
@@ -241,19 +260,27 @@ class HostWallet:
         # paid, recover can always finish (or abandon-fund can hand it over).
         # The wallet is locked to the key only once a funding completes.
         self.state["pending_fund"] = {"quote": quote_id, "expiry": q.get("expiry"), "minted": False,
-                                      "device_pubkey": device_pubkey,
+                                      "device_pubkey": device_pubkey, "invoice": q["request"],
                                       "outputs": self._fund_outputs(amount, device_pubkey)}
         self.save()
-        if on_invoice:
-            on_invoice(q["request"])
-        deadline = time.time() + wait_s
-        while not quote_is_paid(q):
-            if time.time() > deadline:
-                raise WalletError(f"invoice not paid yet (quote {quote_id}); "
-                                  "once it is paid, run recover")
-            time.sleep(2)
-            q = self.mint.mint_quote_state(quote_id)
-        return self._recover_fund()
+        return q
+
+    def pair(self, device_pubkey: str) -> str:
+        """Remember the device's key (scanned from its screen) for later funding."""
+        device_pubkey = check_pubkey(device_pubkey, "device pubkey")
+        known = self.state.get("device_pubkey")
+        holds = any(self.state.get(k) for k in ("proofs", "pending", "pending_fund", "abandoned_funds",
+                                                 "abandoned_sends", "unclaimed_change"))
+        if known and known != device_pubkey and holds:
+            raise WalletError("this wallet is already locked to a different device key")
+        self.state["device_pubkey"] = device_pubkey
+        self.save()
+        return device_pubkey
+
+    def _log(self, kind, amount, status="done", **extra):
+        """Append to the wallet's history (saved by the caller's next save())."""
+        self.state.setdefault("history", []).append(
+            {"time": int(time.time()), "type": kind, "amount": amount, "status": status, **extra})
 
     def _fund_outputs(self, amount, pk):
         return self._make_outputs(split_amount(amount), self._active_keyset()["id"],
@@ -276,6 +303,7 @@ class HostWallet:
                 if (not archived and q.get("state") == "UNPAID"
                         and isinstance(expiry, (int, float)) and time.time() > expiry):
                     self.state["pending_fund"] = None  # can never be paid now
+                    self._log("fund", sum(o["amount"] for o in pf["outputs"]), "expired")
                     self.save()
                     return "expired"
                 # e.g. PENDING: our mint request may still be running at the mint
@@ -338,6 +366,7 @@ class HostWallet:
     def _finish_fund(self, new, archived=None):
         self.state["device_pubkey"] = self._fund_pubkey(archived or self.state["pending_fund"])
         self.state["proofs"].extend(new)
+        self._log("fund", sum(p["amount"] for p in new))
         if archived:
             self.state["abandoned_funds"].remove(archived)
         else:
@@ -617,6 +646,7 @@ class HostWallet:
             gone = {p["secret"] for p, st in zip(req["inputs"], states, strict=True) if st == "SPENT"}
             self.state["proofs"] = [p for p in self.state["proofs"] if p["secret"] not in gone]
             self.state["pending"] = None
+            self._log("melt", req["amount"], "failed")
             self.save()
             return {"melt": "failed"}
         raise WalletError(f"melt quote is {q.get('state')!r} at the mint; keep the wallet file "
@@ -638,6 +668,9 @@ class HostWallet:
                 change = []
         spent = {p["secret"] for p in pend["request"]["inputs"]}
         self.state["proofs"] = [p for p in self.state["proofs"] if p["secret"] not in spent] + change
+        req = pend["request"]
+        self._log("melt", req["amount"], fee=sum(p["amount"] for p in req["inputs"]) - req["amount"]
+                  - sum(p["amount"] for p in change))
         if abandoned:
             self.state["abandoned_sends"].remove(abandoned)
         else:
@@ -668,6 +701,12 @@ class HostWallet:
         sent = [p for p, r in zip(new, roles, strict=True) if r == "recipient"]
         self.state["proofs"].extend(change)
         token = encode_token_v3(self.mint_url, sent, self.unit)
+        fee = sum(p["amount"] for p in pend["request"]["inputs"]) - sum(p["amount"] for p in new)
+        if sent:
+            to = {crypto.parse_secret(p["secret"])[1] for p in sent if crypto.parse_secret(p["secret"])}
+            self._log("send", sum(p["amount"] for p in sent), fee=fee, to=to.pop() if to else None)
+        else:
+            self._log("receive", sum(p["amount"] for p in change), fee=fee)
         # the recipient's proofs exist nowhere else: keep the token until shown
         if sent:
             self.state.setdefault("undelivered_tokens", []).append(token)
@@ -803,6 +842,8 @@ class HostWallet:
             gone = {p["secret"] for p, st in zip(pend["request"]["inputs"], states, strict=True) if st == "SPENT"}
             self.state["proofs"] = [p for p in self.state["proofs"] if p["secret"] not in gone]
             self.state["pending"] = None
+            sent = sum(o["amount"] for o in pend["outputs"] if o["role"] == "recipient")
+            self._log("send" if sent else "receive", sent or sum(o["amount"] for o in pend["outputs"]), "failed")
             self.save()
             return {"send": "failed"}
         raise WalletError(
