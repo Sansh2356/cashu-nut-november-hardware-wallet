@@ -4,11 +4,12 @@ The host is assumed to be untrusted. It holds proofs that are all locked to the
 device's key (SIG_ALL), so stealing this wallet file gives an attacker nothing
 they can spend.
 
-Crash safety: before any call that can move money (mint, swap), the wallet
+Crash safety: before any call that can move money (mint, swap, melt), the wallet
 writes everything needed to finish it (the outputs and their blinding factors)
 to disk and marks it in flight. If the call's outcome is unknown (timeout,
 crash, bad reply), `recover()` asks the mint for the signatures it already
 issued (NUT-09) or confirms nothing happened (NUT-07), and finishes the job.
+For a melt it first asks the mint for the quote's state (NUT-05).
 """
 
 import base64
@@ -332,19 +333,19 @@ class HostWallet:
     def reserved_balance(self) -> int:
         return sum(p["amount"] for p in self.state["proofs"]) - self.balance()
 
-    def build_send_request(self, amount: int, to_pubkey: str = None) -> dict:
-        """Choose inputs, build outputs and return the request for the device."""
+    def _device_key_for_new_request(self):
         if self.state.get("pending"):
             raise WalletError("a send is already pending; submit or cancel it first")
         device_pk = self.state.get("device_pubkey")
         if not device_pk:
             raise WalletError("wallet has no device key yet; fund it first")
-        if amount <= 0:
-            raise WalletError("amount must be positive")
-        if to_pubkey is not None:  # "" must be refused, not treated as "no recipient"
-            to_pubkey = check_pubkey(to_pubkey, "recipient pubkey (--to)")
+        return device_pk
 
-        # coin selection: largest first, re-checking the fee as inputs are added
+    def _select(self, amount):
+        """Coin selection: largest first, re-checking the fee as inputs are added.
+
+        Returns (inputs, what is left after amount and input fee).
+        """
         pool = sorted(self._spendable(), key=lambda p: -p["amount"])
         chosen, total = [], 0
         for p in pool:
@@ -355,7 +356,23 @@ class HostWallet:
         fee = self._fee(chosen)
         if total < amount + fee:
             raise WalletError(f"insufficient balance: have {self.balance()}, need {amount + fee}")
-        change = total - amount - fee
+        return [{k: p[k] for k in ("amount", "id", "secret", "C")} for p in chosen], total - amount - fee
+
+    def _new_pending(self, request, outs):
+        # an honest host reveals every output so the device can verify all of them
+        request["reveals"] = [{"index": i, "secret": o["secret"], "r": o["r"]} for i, o in enumerate(outs)]
+        self.state["pending"] = {"outputs": outs, "request": request, "submitted": False}
+        self.save()
+        return request
+
+    def build_send_request(self, amount: int, to_pubkey: str = None) -> dict:
+        """Choose inputs, build outputs and return the request for the device."""
+        device_pk = self._device_key_for_new_request()
+        if amount <= 0:
+            raise WalletError("amount must be positive")
+        if to_pubkey is not None:  # "" must be refused, not treated as "no recipient"
+            to_pubkey = check_pubkey(to_pubkey, "recipient pubkey (--to)")
+        inputs, change = self._select(amount)
 
         ks = self._active_keyset()
         if to_pubkey is not None:
@@ -366,25 +383,43 @@ class HostWallet:
         outs = self._make_outputs(split_amount(amount), ks["id"], rcp_secret, "recipient")
         outs += self._make_outputs(split_amount(change), ks["id"],
                                    lambda: crypto.make_p2pk_secret(device_pk, "SIG_ALL"), "change")
+        return self._new_pending({"v": 1, "type": "swap", "mint": self.mint_url, "unit": self.unit,
+                                  "inputs": inputs, "outputs": _blinded(outs)}, outs)
 
-        inputs = [{k: p[k] for k in ("amount", "id", "secret", "C")} for p in chosen]
-        request = {
-            "v": 1, "type": "swap", "mint": self.mint_url, "unit": self.unit,
-            "inputs": inputs,
-            "outputs": _blinded(outs),
-            # an honest host reveals every output so the device can verify all of them
-            "reveals": [{"index": i, "secret": o["secret"], "r": o["r"]} for i, o in enumerate(outs)],
-        }
-        self.state["pending"] = {"outputs": outs, "request": request, "submitted": False}
-        self.save()
-        return request
+    def build_melt_request(self, invoice: str) -> dict:
+        """Get a melt quote for a bolt11 invoice and build the request for the device.
+
+        Change for the unused fee reserve comes back on NUT-08 blank outputs
+        (amount 0; the mint fills in amounts), locked to the device like swap change.
+        """
+        device_pk = self._device_key_for_new_request()
+        if self.unit != "sat":
+            raise WalletError("paying invoices is only supported in sat")
+        q = self.mint.melt_quote(invoice.strip(), self.unit)
+        amount, fee_reserve = q.get("amount"), q.get("fee_reserve")
+        if not (isinstance(q.get("quote"), str) and isinstance(amount, int) and amount > 0
+                and isinstance(fee_reserve, int) and fee_reserve >= 0):
+            raise MintUnavailable("mint sent a malformed melt quote")
+        inputs, overpaid = self._select(amount + fee_reserve)
+        overpaid += fee_reserve  # most that can come back: fee reserve unused, plus selection excess
+        outs = self._make_outputs([0] * overpaid.bit_length(), self._active_keyset()["id"],
+                                  lambda: crypto.make_p2pk_secret(device_pk, "SIG_ALL"), "change")
+        return self._new_pending({"v": 1, "type": "melt", "mint": self.mint_url, "unit": self.unit,
+                                  "invoice": invoice.strip(), "quote": q["quote"],
+                                  "amount": amount, "fee_reserve": fee_reserve,
+                                  "inputs": inputs, "outputs": _blinded(outs)}, outs)
 
     def cancel_pending(self):
         pend = self.state.get("pending")
         if pend and pend.get("submitted"):
             raise WalletError("this send was already submitted and its outcome is unknown; "
                               "run recover instead of cancel")
-        if pend and pend.get("ever_submitted"):
+        if pend and pend.get("ever_submitted") and pend["request"]["type"] == "melt":
+            # ponytail: a melt the mint once saw is dropped only if its quote is
+            # UNPAID now; a request still in transit could land after this check.
+            if self.mint.melt_quote_state(pend["request"]["quote"]).get("state") != "UNPAID":
+                raise WalletError("the mint may still pay this invoice; run recover instead of cancel")
+        elif pend and pend.get("ever_submitted"):
             # The mint once saw this swap and might still complete it (slow
             # mint). Keep its outputs so recover() can collect the result.
             pend["cancelled_at"] = time.time()
@@ -392,14 +427,29 @@ class HostWallet:
         self.state["pending"] = None
         self.save()
 
+    def _witnessed_inputs(self, signature):
+        """Check the device's signature against the pending request; inputs with witness."""
+        if not (isinstance(signature, dict) and isinstance(signature.get("signature"), str)):
+            raise WalletError("signature file is not a device signature")
+        req = self.state["pending"]["request"]
+        msg = crypto.sig_all_message(req["inputs"], req["outputs"], req.get("quote"))
+        if not crypto.schnorr_verify(self.state["device_pubkey"], msg, signature["signature"]):
+            raise WalletError("device signature does not match the pending request")
+        inputs = [dict(p) for p in req["inputs"]]
+        inputs[0]["witness"] = json.dumps({"signatures": [signature["signature"]]}, separators=(",", ":"))
+        return inputs
+
     def submit(self, signature: dict):
         """Attach the device's SIG_ALL witness, swap at the mint, store change.
 
-        Returns (token, sent_proofs, change_proofs).
+        Returns (token, sent_proofs, change_proofs), or for a melt
+        (payment preimage, change_proofs).
         """
         pend = self.state.get("pending")
         if not pend:
             raise WalletError("nothing pending")
+        if pend["request"]["type"] == "melt":
+            return self._submit_melt(signature)
         if pend.get("submitted"):
             # an earlier attempt was interrupted: find out what happened first
             result = self._recover_send()
@@ -409,16 +459,8 @@ class HostWallet:
                 raise WalletError(SEND_FAILED)
             pend = self.state["pending"]
 
-        if not (isinstance(signature, dict) and isinstance(signature.get("signature"), str)):
-            raise WalletError("signature file is not a device signature")
         req = pend["request"]
-        msg = crypto.sig_all_message(req["inputs"], req["outputs"])
-        if not crypto.schnorr_verify(self.state["device_pubkey"], msg, signature["signature"]):
-            raise WalletError("device signature does not match the pending request")
-
-        inputs = [dict(p) for p in req["inputs"]]
-        inputs[0]["witness"] = json.dumps({"signatures": [signature["signature"]]}, separators=(",", ":"))
-
+        inputs = self._witnessed_inputs(signature)
         # record the in-flight swap BEFORE calling the mint
         pend["submitted"] = pend["ever_submitted"] = True
         self.save()
@@ -436,6 +478,68 @@ class HostWallet:
                 raise WalletError(SEND_FAILED) from None
             raise
         return self._finish_send(self._unblind(pend["outputs"], sigs))
+
+    def _submit_melt(self, signature):
+        pend = self.state["pending"]
+        if pend.get("submitted"):  # an earlier attempt was interrupted
+            done = self._melt_outcome(self._recover_melt())
+            if done:
+                return done
+        req = pend["request"]
+        inputs = self._witnessed_inputs(signature)
+        pend["submitted"] = pend["ever_submitted"] = True  # BEFORE calling the mint
+        self.save()
+        try:
+            q = self.mint.melt(req["quote"], inputs, req["outputs"])
+        except MintRejected:
+            # as with swap, a 4xx alone doesn't prove the inputs are untouched
+            done = self._melt_outcome(self._recover_melt())
+            if done:
+                return done
+            raise
+        if q.get("state") == "PAID":
+            return self._finish_melt(q)
+        done = self._melt_outcome(self._recover_melt())
+        if done:
+            return done
+        raise WalletError("the mint could not pay the invoice; your funds are untouched. "
+                          "Submit again or cancel.")
+
+    def _melt_outcome(self, result):
+        """(preimage, change) if the melt is done, None if not sent; raises while pending."""
+        if result["melt"] == "pending":
+            raise WalletError("the mint is still paying the invoice; run recover later")
+        return result.get("melt_result")
+
+    def _recover_melt(self) -> dict:
+        req = self.state["pending"]["request"]
+        q = self.mint.melt_quote_state(req["quote"])
+        if q.get("state") == "PAID":
+            return {"melt": "done", "melt_result": self._finish_melt(q)}
+        if q.get("state") == "PENDING":
+            return {"melt": "pending"}
+        if q.get("state") == "UNPAID" and all(s == "UNSPENT" for s in self._input_states(self.state["pending"])):
+            self.state["pending"]["submitted"] = False  # nothing was paid; inputs are ours
+            self.save()
+            return {"melt": "not_sent"}
+        raise WalletError(f"melt quote is {q.get('state')!r} at the mint; keep the wallet file "
+                          "and retry recover later")
+
+    def _finish_melt(self, q):
+        """Keep the change the mint signed for the unused fee reserve. Returns (preimage, change)."""
+        pend = self.state["pending"]
+        sigs = q.get("change") or []
+        if not isinstance(sigs, list) or len(sigs) > len(pend["outputs"]):
+            raise MintError("mint returned malformed melt change")
+        # NUT-08: the mint signs the first blank outputs and picks their amounts
+        outs = [dict(o, amount=s.get("amount") if isinstance(s, dict) else None)
+                for o, s in zip(pend["outputs"], sigs)]
+        change = self._unblind(outs, sigs)
+        spent = {p["secret"] for p in pend["request"]["inputs"]}
+        self.state["proofs"] = [p for p in self.state["proofs"] if p["secret"] not in spent] + change
+        self.state["pending"] = None
+        self.save()
+        return q.get("payment_preimage"), change
 
     def _finish_send(self, new, abandoned=None):
         pend = abandoned or self.state["pending"]
@@ -532,6 +636,8 @@ class HostWallet:
         pend = self.state.get("pending")
         if not (pend and pend.get("submitted")):
             return {}
+        if pend["request"]["type"] == "melt":
+            return self._recover_melt()
         try:
             sigs = self._restore_all(pend["outputs"])
         except RestoreUnsupported:

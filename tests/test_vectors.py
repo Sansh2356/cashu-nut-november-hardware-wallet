@@ -89,6 +89,29 @@ class TestNut11(unittest.TestCase):
         self.assertTrue(crypto.schnorr_verify(
             "029116d32e7da635c8feeb9f1f4559eb3d9b42d400f9d22a64834d89cde0eb6835", msg, sig))
 
+    def test_bolt11_spec_vector(self):
+        from nutsigner import bolt11
+        # BOLT #11 "Please send $3 for a cup of coffee", 2500u
+        inv = ("lnbc2500u1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdq5xysxxatsyp3k7enxv4j"
+               "sxqzpuaztrnwngzn3kdzw5hydlzf03qdgm2hdq27cqv3agm2awhz5se903vruatfhq77w3ls4evs3ch9zw97j25emudupq63"
+               "nyw24cg27h2rspfj9srp")
+        self.assertEqual(bolt11.decode(inv), (250000,
+                         "0001020304050607080900010203040506070809000102030405060708090102"))
+        self.assertEqual(bolt11.decode("lightning:" + inv.upper())[0], 250000)
+        # testnut invoice: 100n = 10 sat
+        tn = ("lnbc100n1p402ae9dqqpp5w8yy4hyjd0na5r7tzuv49jtec0mnn654uj340v390zxu7eddtvsqsp59g4z52329g4z52329g4z5"
+              "2329g4z52329g4z52329g4z52329g4q9qrsgqcqzys3szf5wp5dlpcsne64psc00atm3227rrp84z9vnwayyh3p98p47m5qc8z"
+              "mw8ulrwhsw5fd6zpw856zw2dv65fqfufmeswxcydvte2p7sq7822du")
+        self.assertEqual(bolt11.decode(tn)[0], 10)
+        # amountless (BOLT #11 donation vector): no amount
+        donation = ("lnbc1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdpl2pkx2ctnv5sxxmmwwd5kgetjyp"
+                    "eh2ursdae8g6twvus8g6rfwvs8qun0dfjkxaq8rkx3yf5tcsyz3d73gafnh3cax9rn449d9p5uxz9ezhhypd0elx87sjle52x"
+                    "86fux2ypatgddc6k63n7erqz25le42c4u4ecky03ylcqca784w")
+        self.assertIsNone(bolt11.decode(donation)[0])
+        for bad in (inv[:-1] + "q", inv.replace("2500u", "2501u"), "lnbc1", "lnbc2500x1qqqqqqqqq"):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                bolt11.decode(bad)
+
     def test_curve_matches_libsecp256k1(self):
         """Cross-check the pure-Python curve against embit's libsecp256k1."""
         from embit import ec
