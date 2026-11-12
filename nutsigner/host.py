@@ -56,6 +56,29 @@ def encode_token_v3(mint_url: str, proofs, unit="sat") -> str:
     return "cashuA" + base64.urlsafe_b64encode(json.dumps(token).encode()).decode()
 
 
+def decode_token_v3(token: str):
+    """(mint url, unit, proofs) of a cashuA token. Raises WalletError if malformed."""
+    token = token.strip()
+    if not token.startswith("cashuA"):
+        raise WalletError("not a cashuA token (cashuB tokens are not supported yet)")
+    try:
+        b64 = token[6:]
+        data = json.loads(base64.urlsafe_b64decode(b64 + "=" * (-len(b64) % 4)))
+        entries = data["token"]
+        mints = {e["mint"].rstrip("/") for e in entries}
+        proofs = [{k: p[k] for k in ("amount", "id", "secret", "C")} for e in entries for p in e["proofs"]]
+        unit = data.get("unit", "sat")
+        if len(mints) != 1 or not proofs or not all(
+                type(p["amount"]) is int and p["amount"] > 0
+                and all(isinstance(p[k], str) for k in ("id", "secret", "C")) for p in proofs):
+            raise ValueError
+        if len({p["secret"] for p in proofs}) != len(proofs):
+            raise ValueError
+    except Exception:
+        raise WalletError("token is malformed") from None
+    return mints.pop(), unit, proofs
+
+
 def check_pubkey(pubkey_hex: str, what: str = "pubkey") -> str:
     """Return the key in lowercase if it is a valid compressed point, else raise."""
     try:
@@ -337,10 +360,15 @@ class HostWallet:
     def reserved_balance(self) -> int:
         return sum(p["amount"] for p in self.state["proofs"]) - self.balance()
 
-    def _device_key_for_new_request(self):
+    def _device_key_for_new_request(self, given=None):
         if self.state.get("pending"):
             raise WalletError("a send is already pending; submit or cancel it first")
         device_pk = self.state.get("device_pubkey")
+        if given is not None:
+            given = check_pubkey(given, "device pubkey")
+            if device_pk and device_pk != given:
+                raise WalletError("this wallet is already locked to a different device key")
+            return given
         if not device_pk:
             raise WalletError("wallet has no device key yet; fund it first")
         return device_pk
@@ -395,8 +423,8 @@ class HostWallet:
 
         ks = self._active_keyset()
         if to_pubkey is not None:
-            # standard P2PK (SIG_INPUTS) so any NUT-11 wallet holding that key can redeem
-            rcp_secret = lambda: crypto.make_p2pk_secret(to_pubkey, "SIG_INPUTS")
+            # SIG_ALL, like our own coins: the recipient is a NutSigner device
+            rcp_secret = lambda: crypto.make_p2pk_secret(to_pubkey, "SIG_ALL")
         else:
             rcp_secret = lambda: os.urandom(32).hex()
         outs = self._make_outputs(split_amount(amount), ks["id"], rcp_secret, "recipient")
@@ -404,6 +432,46 @@ class HostWallet:
                                    lambda: crypto.make_p2pk_secret(device_pk, "SIG_ALL"), "change")
         return self._new_pending({"v": 1, "type": "swap", "mint": self.mint_url, "unit": self.unit,
                                   "inputs": inputs, "outputs": _blinded(outs)}, outs)
+
+    def build_receive_request(self, token: str, device_pubkey: str = None) -> dict:
+        """Swap a token locked to this wallet's device (send --to) into fresh coins locked to it.
+
+        Until the swap, the sender still knows the proofs; the device signs a
+        swap whose outputs are all change. device_pubkey sets the key of a new wallet.
+        """
+        if device_pubkey is None and not self.state.get("device_pubkey"):
+            raise WalletError("this wallet has no device key yet; give it with --pubkey")
+        device_pk = self._device_key_for_new_request(device_pubkey)
+        mint, unit, proofs = decode_token_v3(token)
+        if mint != self.mint_url or unit != self.unit:
+            raise WalletError(f"token is for {mint} ({unit}); this wallet uses {self.mint_url} ({self.unit})")
+        for p in proofs:
+            parsed = crypto.parse_secret(p["secret"])
+            if not parsed or parsed[0] != "P2PK":
+                raise WalletError("token is not locked to a key; only tokens sent to your "
+                                  "device key (send --to) can be received")
+            _, data, tags = parsed
+            try:
+                ours = crypto.xonly(data) == crypto.xonly(device_pk)
+            except Exception:
+                ours = False
+            if not ours:
+                raise WalletError("token is locked to a different key, not this wallet's device")
+            if tags != [["sigflag", "SIG_ALL"]]:
+                raise WalletError("token's lock is not a plain SIG_ALL lock; the device can't sign it")
+        if not {p["id"] for p in proofs} <= {k["id"] for k in self.keysets() if k.get("unit") == self.unit}:
+            raise WalletError("token uses a keyset this mint doesn't have")
+        states = self._input_states({"request": {"inputs": proofs}})
+        if any(s != "UNSPENT" for s in states):
+            raise WalletError("token has already been spent (received before?)")
+        keep = sum(p["amount"] for p in proofs) - self._fee(proofs)
+        if keep <= 0:
+            raise WalletError("token is worth no more than the mint's fee to receive it")
+        outs = self._make_outputs(split_amount(keep), self._active_keyset()["id"],
+                                  lambda: crypto.make_p2pk_secret(device_pk, "SIG_ALL"), "change")
+        self.state["device_pubkey"] = device_pk  # submit checks the signature against it
+        return self._new_pending({"v": 1, "type": "swap", "mint": self.mint_url, "unit": self.unit,
+                                  "inputs": proofs, "outputs": _blinded(outs)}, outs)
 
     def build_melt_request(self, invoice: str) -> dict:
         """Get a melt quote for a bolt11 invoice and build the request for the device.

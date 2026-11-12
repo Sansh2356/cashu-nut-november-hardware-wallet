@@ -269,6 +269,8 @@ def summary_lines(review: dict) -> list:
                 f"Max fee {review['fee_reserve']} {u}",
                 f"Up to {review['at_risk']} {u} at risk",
                 f"Mint {mint[:16]}"]
+    if review["sending"] == 0:  # every output is change: e.g. receiving coins locked to us
+        return [f"Receive {review['in_total']} {u}", f"Fee {review['fee']} {u}", f"Mint {mint[:16]}"]
     lines = [f"Send {review['sending']} {u}"]
     for rcp in review["recipients"]:
         if rcp["kind"] == "locked":
