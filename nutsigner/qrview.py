@@ -42,7 +42,10 @@ def show(frames, fps: float = 5, caption: str = "Esc or q to close"):
             if cv2.waitKey(int(1000 / fps)) & 0xFF in (27, ord("q")) or _window_closed():
                 return
     finally:
-        cv2.destroyWindow(WINDOW)
+        try:
+            cv2.destroyWindow(WINDOW)
+        except cv2.error:  # OpenCV 5 raises if the user already closed it
+            pass
 
 
 def scan(done, source=0, preview=None, caption=lambda: "Point the camera at the QR"):
