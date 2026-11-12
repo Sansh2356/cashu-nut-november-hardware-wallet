@@ -243,5 +243,25 @@ class TestMelt(FlowBase):
             self.wallet.submit({"signature": swap_sig})
 
 
+@unittest.skipUnless(os.environ.get("NUTSIGNER_TESTNUT"), "set NUTSIGNER_TESTNUT=1 to melt on testnut.cashu.space")
+class TestTestnutMelt(unittest.TestCase):
+    def test_real_melt(self):
+        from nutsigner.mint import MintClient
+        url = "https://testnut.cashu.space"
+        client = MintClient(url)
+        dev = DeviceSigner.from_mnemonic(MNEMONIC)
+        w = HostWallet(os.path.join(tempfile.mkdtemp(), "w.json"), client, url)
+        self.addCleanup(w.close)
+        w.fund(40, dev.pubkey_hex)
+        invoice = client.mint_quote(10)["request"]  # testnut's fake wallet "pays" any invoice
+        req = w.build_melt_request(invoice)
+        print("\n  testnut melt screen:\n   " + "\n   ".join(summary_lines(dev.review(req))))
+        preimage, change = w.submit(wire.decode_signature(wire.encode_signature(dev.sign(req))))
+        self.assertEqual(client.melt_quote_state(req["quote"])["state"], "PAID")
+        print(f"  change {sum(p['amount'] for p in change)} sat, balance {w.balance()} sat")
+        self.assertLessEqual(w.balance(), 40 - 10)
+        self.assertTrue(change)  # unused fee reserve came back, locked to the device
+
+
 if __name__ == "__main__":
     unittest.main()
