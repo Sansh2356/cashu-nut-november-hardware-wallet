@@ -362,7 +362,7 @@ class HostWallet:
 
     def _device_key_for_new_request(self, given=None):
         if self.state.get("pending"):
-            raise WalletError("a send is already pending; submit or cancel it first")
+            raise WalletError("a send, payment or receive is already pending; submit or cancel it first")
         device_pk = self.state.get("device_pubkey")
         if given is not None:
             given = check_pubkey(given, "device pubkey")
