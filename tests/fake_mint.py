@@ -186,13 +186,23 @@ class FakeMint:
                     raise MintError("P2PK witness invalid")
 
 
-def make_invoice(amount_sat=None, payment_hash=None, hrp="lnbc") -> str:
-    """A syntactically valid bolt11 invoice (checksum ok, signature all zeros)."""
+def make_invoice(amount_sat=None, hrp="lnbc") -> str:
+    """A real, signed bolt11 invoice from a throwaway node key (real mints accept it)."""
+    import time
     from embit.bech32 import CHARSET, Encoding, bech32_create_checksum, convertbits
+    from embit.util import secp256k1 as secp
     if amount_sat is not None:
         hrp += f"{amount_sat * 10}n"  # 1 sat = 10 nanobitcoin
-    ph = payment_hash or os.urandom(32)
-    data = [0] * 7 + [1, 1, 20] + convertbits(ph, 8, 5) + [0] * 104  # timestamp, p (len 52), hash, sig
+    t = int(time.time())
+    data = [t >> 5 * i & 31 for i in range(6, -1, -1)]                    # timestamp, 35 bits
+    data += [1, 1, 20] + convertbits(os.urandom(32), 8, 5)               # p: payment hash
+    data += [16, 1, 20] + convertbits(os.urandom(32), 8, 5)              # s: payment secret
+    data += [13, 0, 0]                                                   # d: empty description
+    data += [5, 0, 3, 16, 8, 0] + [24, 0, 2, 4, 16]                      # 9: features, c: cltv 18
+    msg = hashlib.sha256(hrp.encode() + bytes(convertbits(data, 5, 8))).digest()
+    sig, rec = secp.ecdsa_recoverable_signature_serialize_compact(
+        secp.ecdsa_sign_recoverable(msg, os.urandom(32)))
+    data += convertbits(sig + bytes([rec]), 8, 5)
     data += bech32_create_checksum(Encoding.BECH32, hrp, data)
     return hrp + "1" + "".join(CHARSET[d] for d in data)
 
