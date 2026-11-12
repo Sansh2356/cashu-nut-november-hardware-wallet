@@ -31,7 +31,7 @@ This is the Week 1 code: the signing core, a host wallet, and a command-line
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-host.txt               # device-only installs need just requirements.txt
-python3 -m unittest discover -s tests -t . -v     # 104 tests; the testnut one skips by default
+python3 -m unittest discover -s tests -t . -v     # 113 tests; the testnut one skips by default
 NUTSIGNER_TESTNUT=1 python3 -m pytest -q -k testnut   # optional: a real melt on testnut
 ```
 
@@ -60,7 +60,7 @@ To pay a Lightning invoice (testnut's fake Lightning backend "pays" anything):
 
 ```bash
 python3 host_cli.py melt lnbc100n1... -o request.json      # gets a melt quote; add --qr for QR
-python3 device_cli.py sign request.json -o signature.json  # shows: Pay 10 sat (Lightning), max fee, change
+python3 device_cli.py sign request.json -o signature.json  # shows: Pay 10 sat (Lightning), max fee, sats at risk
 python3 host_cli.py submit signature.json                  # pays, keeps the unused fee reserve as change
 ```
 
@@ -163,19 +163,36 @@ NUT-08 blank outputs (amount 0) that carry back the unused fee reserve; the
 mint chooses their amounts. The device:
 
 - decodes the bolt11 invoice itself and requires its amount to equal the
-  quote's (invoices without an amount are refused),
-- requires every output to be revealed change locked back to itself, and
-  enough of them to return everything not paid to the invoice,
-- checks the inputs cover amount + fee reserve, and applies `--max-send` to
-  amount + fee reserve,
+  quote's (invoices without an amount, and non-mainnet `lntb`/`lnbcrt`/... ones,
+  are refused),
+- requires every output to be a blank output (amount 0) revealed as change
+  locked back to itself, and enough of them to return everything not paid to
+  the invoice,
+- checks the inputs cover amount + fee reserve,
+- counts **every input as at risk**: the screen shows "Up to N sat at risk"
+  and `--max-send` applies to the input total,
 - signs `SIG_ALL` over inputs, outputs and the quote id, so the signature
   can't be used for any other quote.
 
+```
+Pay 30 sat (Lightning)
+Payee not verified
+Max fee 4 sat
+Up to 36 sat at risk
+Mint testnut.cashu.sp
+```
+
 **Limitation:** offline, the device can't check that the quote id belongs to
-the invoice it shows, or that the fee reserve is the mint's real one. The mint
-pays the invoice it stored with the quote and keeps at most its own fee
-reserve. A lying host could therefore show one invoice and spend on another
-quote of the same amount, or show a lower max fee than the mint will charge.
+the invoice it shows, or that the fee reserve is the mint's real one; it
+doesn't verify the payee either. The mint pays the invoice it stored with the
+quote. A lying host can therefore swap in the quote of **any invoice the
+inputs cover**, up to the whole input total, or show a lower max fee than the
+mint will charge. That is why the device shows the input total as the amount
+at risk and applies its limit to it. The host picks inputs tightly (proofs
+that don't overshoot first, then the smallest one that closes the gap), so
+the input total stays close to amount + fee reserve. If you cancel a payment
+the mint has seen, its inputs stay reserved like a cancelled send's, and
+`recover` collects the change should it be paid later.
 
 ### Over QR (v2)
 

@@ -15,7 +15,7 @@ _MSAT_PER = {"": 10**11, "m": 10**8, "u": 10**5, "n": 10**2}  # msat per unit; "
 
 
 def decode(invoice: str):
-    """Return (amount in sat or None if amountless, payment hash hex)."""
+    """Return (amount in sat or None if amountless, payment hash hex, currency e.g. "bc")."""
     if not isinstance(invoice, str):
         raise ValueError("invoice is not a string")
     s = invoice.strip()
@@ -60,4 +60,4 @@ def decode(invoice: str):
         i += 3 + length
     if i != len(fields) or not payment_hash or len(payment_hash) != 64:
         raise ValueError("invoice has no payment hash")
-    return amount, payment_hash
+    return amount, payment_hash, m.group(1)

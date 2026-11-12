@@ -96,7 +96,7 @@ class TestNut11(unittest.TestCase):
                "sxqzpuaztrnwngzn3kdzw5hydlzf03qdgm2hdq27cqv3agm2awhz5se903vruatfhq77w3ls4evs3ch9zw97j25emudupq63"
                "nyw24cg27h2rspfj9srp")
         self.assertEqual(bolt11.decode(inv), (250000,
-                         "0001020304050607080900010203040506070809000102030405060708090102"))
+                         "0001020304050607080900010203040506070809000102030405060708090102", "bc"))
         self.assertEqual(bolt11.decode("lightning:" + inv.upper())[0], 250000)
         # testnut invoice: 100n = 10 sat
         tn = ("lnbc100n1p402ae9dqqpp5w8yy4hyjd0na5r7tzuv49jtec0mnn654uj340v390zxu7eddtvsqsp59g4z52329g4z52329g4z5"
@@ -112,6 +112,26 @@ class TestNut11(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 bolt11.decode(bad)
 
+    def test_bolt11_amount_and_field_edge_cases(self):
+        """Each of these has a valid checksum, so the check under test fails first."""
+        from nutsigner import bolt11
+        from tests.fake_mint import make_invoice
+        self.assertEqual(bolt11.decode(make_invoice(None, hrp="lnbc10000p"))[0], 1)  # 1000 msat
+        self.assertEqual(bolt11.decode(make_invoice(None, hrp="lntb1u"))[2], "tb")
+        inv = make_invoice(5)
+        self.assertEqual(bolt11.decode(inv.upper())[0], 5)
+        cases = {
+            "mixed case": inv[:10] + inv[10:].upper(),
+            "p not a whole msat": make_invoice(None, hrp="lnbc1p"),
+            "sub-sat amount": make_invoice(None, hrp="lnbc10p"),
+            "leading zero": make_invoice(None, hrp="lnbc01u"),
+            "truncated tagged field": _with_fields([1, 1, 20] + [0] * 10),
+            "no payment hash": _with_fields([13, 0, 0]),
+        }
+        for name, bad in cases.items():
+            with self.subTest(name), self.assertRaises(ValueError):
+                bolt11.decode(bad)
+
     def test_curve_matches_libsecp256k1(self):
         """Cross-check the pure-Python curve against embit's libsecp256k1."""
         from embit import ec
@@ -119,6 +139,14 @@ class TestNut11(unittest.TestCase):
             ours = curve.serialize(curve.mul(k)).hex()
             theirs = ec.PrivateKey(k.to_bytes(32, "big")).get_public_key().sec().hex()
             self.assertEqual(ours, theirs)
+
+
+def _with_fields(fields, hrp="lnbc10n"):
+    """Invoice with these tagged fields, a zero signature and a valid checksum."""
+    from embit.bech32 import CHARSET, Encoding, bech32_create_checksum
+    data = [0] * 7 + fields + [0] * 104
+    data += bech32_create_checksum(Encoding.BECH32, hrp, data)
+    return hrp + "1" + "".join(CHARSET[d] for d in data)
 
 
 class TestBlindingBackends(unittest.TestCase):

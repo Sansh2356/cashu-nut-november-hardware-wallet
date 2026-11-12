@@ -25,6 +25,8 @@ A melt (pay a Lightning invoice, NUT-05) has "type": "melt" and also
   "invoice": "lnbc..", "quote": "<mint quote id>", "amount": 21, "fee_reserve": 2
 Its outputs are NUT-08 blank outputs (amount 0) for the unused fee reserve,
 and every one of them must be revealed as change back to this device.
+The device can't tell which invoice the quote id pays (see _review_melt), so
+for a melt it treats every input as at risk.
 """
 
 from embit import bip32, bip39, ec
@@ -116,7 +118,8 @@ class DeviceSigner:
         out_total = 0
         for j, o in enumerate(outputs):
             if melt:
-                _amount(o.get("amount"), f"output {j}", 0)
+                if type(o.get("amount")) is not int or o["amount"] != 0:  # NUT-08
+                    raise Rejected(f"output {j} of a melt must be a blank output (amount 0)")
             else:
                 out_total += _amount(o.get("amount"), f"output {j}")
             _check_point(o.get("B_"), f"output {j} B_")
@@ -202,27 +205,30 @@ class DeviceSigner:
         fee_reserve = _amount(req.get("fee_reserve"), "fee reserve", 0)
         # The device reads the invoice itself instead of trusting the host's amount.
         try:
-            inv_amount, payment_hash = bolt11.decode(req.get("invoice"))
+            inv_amount, payment_hash, network = bolt11.decode(req.get("invoice"))
         except ValueError as e:
             raise Rejected(f"invoice is not valid ({e})") from None
+        if network != "bc":
+            raise Rejected("only mainnet (lnbc) invoices are supported")
         if inv_amount is None:
             raise Rejected("invoices without an amount are not supported")
         if inv_amount != amount:
             raise Rejected(f"invoice is for {inv_amount} sat but the quote says {amount}")
         # Limitation: offline, the device cannot check that the quote id belongs
         # to this invoice, or that fee_reserve is the mint's; only the mint
-        # knows. The mint pays the invoice it stored with the quote and keeps
-        # at most its own fee reserve, so a host could show one invoice and
-        # melt another quote of the same amount, or understate the fee. The
-        # signature covers the quote id, so it can't be reused for another quote.
+        # knows, and it pays the invoice it stored with the quote. A lying host
+        # can swap in the quote of any invoice the inputs cover, so up to
+        # in_total can go to a payee the user never saw. That is the bound the
+        # screen shows and max_send applies to. The signature covers the quote
+        # id, so it can't be reused for another quote.
         if in_total < amount + fee_reserve:
             raise Rejected("inputs do not cover the amount and the fee reserve")
         # Enough blank outputs to return everything not paid to the invoice;
         # with fewer, the mint would keep the overpaid rest.
         if len(req["outputs"]) < (in_total - amount).bit_length():
             raise Rejected("too few change outputs for the overpaid amount")
-        if self.max_send is not None and amount + fee_reserve > self.max_send:
-            raise Rejected(f"paying {amount + fee_reserve} exceeds this device's limit of {self.max_send}")
+        if self.max_send is not None and in_total > self.max_send:
+            raise Rejected(f"risking {in_total} exceeds this device's limit of {self.max_send}")
         return {
             "type": "melt",
             "mint": req.get("mint", "?"),
@@ -230,9 +236,7 @@ class DeviceSigner:
             "in_total": in_total,
             "sending": amount,
             "fee_reserve": fee_reserve,
-            # before the mint's input fee and any unused fee reserve, both of
-            # which the mint settles; all of it comes back as change
-            "change": in_total - amount - fee_reserve,
+            "at_risk": in_total,  # worst case; normally all but amount + fees comes back
             "payment_hash": payment_hash,
             "quote": quote,
         }
@@ -261,9 +265,9 @@ def summary_lines(review: dict) -> list:
     mint = review["mint"].replace("https://", "").replace("http://", "")
     if review.get("type") == "melt":
         return [f"Pay {review['sending']} {u} (Lightning)",
+                "Payee not verified",
                 f"Max fee {review['fee_reserve']} {u}",
-                f"Change ~{review['change']} {u}",
-                f"Hash {review['payment_hash'][:8]}..",
+                f"Up to {review['at_risk']} {u} at risk",
                 f"Mint {mint[:16]}"]
     lines = [f"Send {review['sending']} {u}"]
     for rcp in review["recipients"]:
