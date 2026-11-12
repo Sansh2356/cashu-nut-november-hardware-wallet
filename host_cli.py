@@ -8,6 +8,7 @@
   python3 host_cli.py submit signature.json           # prints the token to give away
   python3 host_cli.py send 21 --qr                    # also show the request as an animated QR
   python3 host_cli.py submit --scan                   # read the signature QR with the webcam
+  python3 host_cli.py melt lnbc... --qr               # pay a Lightning invoice; then sign and submit
   python3 host_cli.py recover                         # finish an interrupted fund/submit
   python3 host_cli.py cancel                          # drop a pending send (not yet submitted)
   python3 host_cli.py abandon-fund                    # give up on (or archive) an unfinished funding
@@ -29,6 +30,12 @@ DEFAULT_MINT = "https://testnut.cashu.space"
 def print_send_result(result):
     token, sent, change = result
     print(f"Swap accepted. Change kept: {sum(p['amount'] for p in change)} sat.")
+
+
+def print_melt_result(result):
+    preimage, change = result
+    print(f"Invoice paid. Preimage: {preimage}")
+    print(f"Change kept: {sum(p['amount'] for p in change)} sat.")
 
 
 def print_tokens(w):
@@ -55,6 +62,23 @@ def scan_signature(source) -> dict:
     return found["sig"]
 
 
+def write_request(req, path, show_qr):
+    try:
+        with open(path, "w") as f:
+            json.dump(req, f, indent=2)
+    except OSError as e:
+        raise WalletError(f"could not write {path}: {e}\nThe request is pending but not "
+                          "written anywhere; run cancel, then try again.") from None
+    print(f"Request written to {path} ({len(req['inputs'])} inputs, "
+          f"{len(req['outputs'])} outputs). Sign it on the device.")
+    if show_qr:
+        from nutsigner import qr, qrview, wire
+        frames = qr.frames(wire.encode_request(req))
+        print(f"Showing the request as an animated QR ({frames.count} frames). "
+              "Close the window once the device has it.")
+        qrview.show(frames, caption="Scan with NutSigner - Esc to close")
+
+
 def camera_source(s: str):
     return int(s) if s.isdigit() else s
 
@@ -72,6 +96,10 @@ def main():
     p = sub.add_parser("send")
     p.add_argument("amount", type=int)
     p.add_argument("--to", help="lock the payment to this recipient pubkey (optional)")
+    p.add_argument("-o", "--out", default="request.json")
+    p.add_argument("--qr", action="store_true", help="show the request as an animated QR")
+    p = sub.add_parser("melt", help="pay a bolt11 Lightning invoice")
+    p.add_argument("invoice")
     p.add_argument("-o", "--out", default="request.json")
     p.add_argument("--qr", action="store_true", help="show the request as an animated QR")
     p = sub.add_parser("submit")
@@ -118,21 +146,11 @@ def main():
             elif w.state.get("pending"):
                 print("A send is waiting for the device's signature.")
         elif args.cmd == "send":
-            req = w.build_send_request(args.amount, args.to)
-            try:
-                with open(args.out, "w") as f:
-                    json.dump(req, f, indent=2)
-            except OSError as e:
-                raise WalletError(f"could not write {args.out}: {e}\nThe send is pending but not "
-                                  "written anywhere; run cancel, then send again.") from None
-            print(f"Request written to {args.out} ({len(req['inputs'])} inputs, "
-                  f"{len(req['outputs'])} outputs). Sign it on the device.")
-            if args.qr:
-                from nutsigner import qr, qrview, wire
-                frames = qr.frames(wire.encode_request(req))
-                print(f"Showing the request as an animated QR ({frames.count} frames). "
-                      "Close the window once the device has it.")
-                qrview.show(frames, caption="Scan with NutSigner - Esc to close")
+            write_request(w.build_send_request(args.amount, args.to), args.out, args.qr)
+        elif args.cmd == "melt":
+            req = w.build_melt_request(args.invoice)
+            print(f"Quote {req['quote']}: pay {req['amount']} sat, fee reserve {req['fee_reserve']} sat.")
+            write_request(req, args.out, args.qr)
         elif args.cmd == "submit":
             if args.scan is not None:
                 sig = scan_signature(args.scan)
@@ -144,7 +162,9 @@ def main():
                     raise WalletError(f"cannot read signature file {args.signature}: {e}") from None
             else:
                 raise WalletError("give a signature file or --scan")
-            print_send_result(w.submit(sig))
+            pend = w.state.get("pending")
+            melt = bool(pend) and pend["request"]["type"] == "melt"
+            (print_melt_result if melt else print_send_result)(w.submit(sig))
             print(f"\nBalance: {w.balance()} sat.")
         elif args.cmd == "recover":
             result = w.recover()
@@ -180,6 +200,13 @@ def main():
             elif result.get("send") == "failed":
                 print("The pending send can never complete: another transaction spent its "
                       "inputs. It was cleared.")
+            if result.get("melt") == "done":
+                print_melt_result(result["melt_result"])
+            elif result.get("melt") == "pending":
+                print("The mint is still paying the invoice; run recover again later.")
+            elif result.get("melt") == "not_sent":
+                print("The invoice was not paid. Your funds are untouched; "
+                      "submit the same signature again or cancel.")
             print(f"Balance: {w.balance()} sat.")
         elif args.cmd == "abandon-fund":
             quote, archived = w.abandon_fund()
