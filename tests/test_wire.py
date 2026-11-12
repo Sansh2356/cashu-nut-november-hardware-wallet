@@ -89,6 +89,29 @@ class TestWire(unittest.TestCase):
             with self.assertRaises(wire.WireError):
                 wire.decode_request(bad)
 
+    def test_melt_roundtrip(self):
+        from tests.fake_mint import make_invoice
+        mint = FakeMint()
+        w = HostWallet(os.path.join(tempfile.mkdtemp(), "w.json"), mint, "https://testnut.cashu.space")
+        w.fund(64, self.dev.pubkey_hex)
+        req = w.build_melt_request(make_invoice(21))
+        w.close()
+        data = wire.encode_request(req)
+        self.assertEqual(data[3], wire.TYPE_MELT)
+        self.assertEqual(wire.decode_request(data), req)
+        self.assertEqual(self.dev.review(wire.decode_request(data))["sending"], 21)
+        for n in range(len(data)):
+            with self.assertRaises(wire.WireError):
+                wire.decode_request(data[:n])
+        # an empty-outputs melt (exact amount, no change) also round-trips
+        exact = dict(req, outputs=[], reveals=[])
+        self.assertEqual(wire.decode_request(wire.encode_request(exact)), exact)
+
+    def test_swap_encoding_unchanged(self):
+        data = wire.encode_request(self.req)
+        self.assertEqual(data[:4], b"NS\x02\x01")
+        self.assertNotIn("invoice", wire.decode_request(data))
+
     def test_sizes(self):
         import json
         v1 = len(json.dumps(self.req, separators=(",", ":")).encode())

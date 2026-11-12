@@ -11,7 +11,7 @@ from nutsigner import crypto
 from nutsigner.device import DeviceSigner, Rejected
 from nutsigner.host import HostWallet, WalletError
 from nutsigner.mint import MintClient, MintError, MintRejected, MintUnavailable
-from tests.fake_mint import FakeMint
+from tests.fake_mint import FakeMint, make_invoice
 
 MNEMONIC = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
 URL = "https://fake.mint"
@@ -283,6 +283,79 @@ class TestSubmitRecovery(Base):
             self.w.submit(self.sig)
         with self.assertRaises(WalletError):
             self.reopen().cancel_pending()
+
+
+class TestMeltRecovery(Base):
+    def setUp(self):
+        super().setUp()
+        self.w.fund(100, self.device.pubkey_hex)
+        self.req = self.w.build_melt_request(make_invoice(30))
+        self.sig = self.device.sign(self.req)
+        self.paid = 100 - 30 - self.real.ln_fee
+
+    def assert_paid(self, w, result):
+        preimage, change = result
+        self.assertEqual(preimage, self.real.melt_quotes[self.req["quote"]]["payment_preimage"])
+        self.assertEqual(w.balance(), self.paid)
+        self.assertFalse(w.in_flight())
+        self.assertIsNone(w.state["pending"])
+
+    def test_melt_reply_lost(self):
+        self.mint.fail["melt"] = "after"
+        with self.assertRaises(MintUnavailable):
+            self.w.submit(self.sig)
+        w = self.reopen()
+        self.assertTrue(w.in_flight())
+        res = w.recover()
+        self.assertEqual(res["melt"], "done")
+        self.assert_paid(w, res["melt_result"])
+
+    def test_melt_reply_lost_then_submit_again(self):
+        self.mint.fail["melt"] = "after"
+        with self.assertRaises(MintUnavailable):
+            self.w.submit(self.sig)
+        w = self.reopen()
+        self.assert_paid(w, w.submit(self.sig))
+
+    def test_melt_never_reached_mint(self):
+        self.mint.fail["melt"] = "before"
+        with self.assertRaises(MintUnavailable):
+            self.w.submit(self.sig)
+        w = self.reopen()
+        self.assertEqual(w.recover(), {"melt": "not_sent"})
+        self.assertFalse(w.in_flight())
+        self.assert_paid(w, w.submit(self.sig))  # same signature still valid
+
+    def test_lightning_payment_pending(self):
+        self.real.melt_pending = True  # mint takes the inputs, payment in flight
+        with self.assertRaises(WalletError):
+            self.w.submit(self.sig)
+        w = self.reopen()
+        self.assertEqual(w.recover(), {"melt": "pending"})
+        self.assertTrue(w.in_flight())
+        with self.assertRaises(WalletError):
+            w.cancel_pending()
+        self.real.settle_melt(self.req["quote"])  # payment succeeds later
+        res = w.recover()
+        self.assertEqual(res["melt"], "done")
+        self.assert_paid(w, res["melt_result"])
+
+    def test_lightning_payment_fails(self):
+        self.real.melt_pending = True
+        with self.assertRaises(WalletError):
+            self.w.submit(self.sig)
+        self.real.settle_melt(self.req["quote"], ok=False)  # mint gives the inputs back
+        self.assertEqual(self.w.recover(), {"melt": "not_sent"})
+        self.w.cancel_pending()
+        self.assertEqual(self.w.balance(), 100)
+
+    def test_rejected_melt_is_not_in_flight(self):
+        self.mint.fail["melt"] = "reject"
+        with self.assertRaises(MintRejected):
+            self.w.submit(self.sig)
+        self.assertFalse(self.w.in_flight())
+        self.w.cancel_pending()
+        self.assertEqual(self.w.balance(), 100)
 
 
 class TestFundRecovery(Base):
@@ -677,6 +750,26 @@ class TestHttpErrors(unittest.TestCase):
             w = HostWallet(os.path.join(tmp, "w.json"), client, url)
             self.assertEqual(w.recover()["send"], "done")
             w.close()
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+
+    def test_melt_over_http(self):
+        from tests import fake_mint_server as srv
+        srv.MINT = FakeMint()
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), srv.Handler)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        url = f"http://127.0.0.1:{httpd.server_address[1]}"
+        try:
+            dev = DeviceSigner.from_mnemonic(MNEMONIC)
+            client = MintClient(url)
+            w = HostWallet(os.path.join(tempfile.mkdtemp(), "w.json"), client, url)
+            self.addCleanup(w.close)
+            w.fund(40, dev.pubkey_hex)
+            req = w.build_melt_request(make_invoice(7))
+            preimage, change = w.submit(dev.sign(req))
+            self.assertEqual(client.melt_quote_state(req["quote"])["state"], "PAID")
+            self.assertEqual(w.balance(), 40 - 7 - srv.MINT.ln_fee)
         finally:
             httpd.shutdown()
             httpd.server_close()
