@@ -2,6 +2,7 @@
 """NutSigner host wallet, command-line edition. Runs on your laptop.
 
   python3 host_cli.py info
+  python3 host_cli.py pubkey --scan                   # read the device's pubkey QR with the webcam
   python3 host_cli.py fund 100 --pubkey <device pubkey>
   python3 host_cli.py balance
   python3 host_cli.py send 21 -o request.json        # then sign on the device
@@ -22,7 +23,7 @@ import argparse
 import json
 import sys
 
-from nutsigner.host import HostWallet, WalletError
+from nutsigner.host import HostWallet, WalletError, check_pubkey
 from nutsigner.mint import MintClient, MintError, MintUnavailable
 
 DEFAULT_MINT = "https://testnut.cashu.space"
@@ -66,7 +67,33 @@ def scan_signature(source) -> dict:
     return found["sig"]
 
 
-def write_request(req, path, show_qr):
+def scan_pubkey(source) -> str:
+    """Read the device's pubkey QR (Tools > Cashu > Show pubkey) from a camera or video."""
+    from nutsigner import qrview
+    found = {}
+
+    def done(text):
+        try:
+            found["pk"] = check_pubkey(text)
+            return True
+        except WalletError:
+            return False
+
+    if not qrview.scan(done, source, caption=lambda: "Show the device pubkey QR - Esc to cancel"):
+        raise WalletError("no device pubkey QR was read")
+    return found["pk"]
+
+
+def show_request(req):
+    """Animated request QR. Call with the wallet closed: the window can stay open a while."""
+    from nutsigner import qr, qrview, wire
+    frames = qr.frames(wire.encode_request(req))
+    print(f"Showing the request as an animated QR ({frames.count} frames). "
+          "Close the window once the device has it.", flush=True)
+    qrview.show(frames, caption="Scan with NutSigner - Esc to close")
+
+
+def write_request(req, path):
     try:
         with open(path, "w") as f:
             json.dump(req, f, indent=2)
@@ -75,12 +102,7 @@ def write_request(req, path, show_qr):
                           "written anywhere; run cancel, then try again.") from None
     print(f"Request written to {path} ({len(req['inputs'])} inputs, "
           f"{len(req['outputs'])} outputs). Sign it on the device.")
-    if show_qr:
-        from nutsigner import qr, qrview, wire
-        frames = qr.frames(wire.encode_request(req))
-        print(f"Showing the request as an animated QR ({frames.count} frames). "
-              "Close the window once the device has it.")
-        qrview.show(frames, caption="Scan with NutSigner - Esc to close")
+    return req
 
 
 def camera_source(s: str):
@@ -93,6 +115,9 @@ def main():
     ap.add_argument("--wallet", default="host_wallet.json")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("info")
+    p = sub.add_parser("pubkey", help="print the wallet's device key, or scan it from the device")
+    p.add_argument("--scan", nargs="?", const="0", metavar="SOURCE", type=camera_source,
+                   help="read the device's pubkey QR from a camera (default 0) or a video file")
     p = sub.add_parser("fund")
     p.add_argument("amount", type=int)
     p.add_argument("--pubkey", required=True, help="device pubkey from device_cli.py pubkey")
@@ -120,8 +145,15 @@ def main():
     sub.add_parser("abandon-fund")
     args = ap.parse_args()
 
+    if args.cmd == "pubkey" and args.scan is not None:  # no wallet needed
+        try:
+            print(scan_pubkey(args.scan))
+        except (WalletError, OSError) as e:
+            sys.exit(f"Error: {e}")
+        return
+
     client = MintClient(args.mint)
-    w = None
+    w = qr_request = None
     try:
         w = HostWallet(args.wallet, client, args.mint)
         if args.cmd == "info":
@@ -134,6 +166,10 @@ def main():
             for ks in w.keysets():
                 print(f"  keyset {ks['id']} unit={ks['unit']} active={ks.get('active')} "
                       f"fee_ppk={ks.get('input_fee_ppk', 0)}")
+        elif args.cmd == "pubkey":
+            if not w.state.get("device_pubkey"):
+                raise WalletError("this wallet has no device key yet; use pubkey --scan")
+            print(w.state["device_pubkey"])
         elif args.cmd == "fund":
             w.fund(args.amount, args.pubkey,
                    on_invoice=lambda inv: print(f"Invoice (testnut pays it automatically):\n{inv}\n"))
@@ -155,16 +191,16 @@ def main():
             elif w.state.get("pending"):
                 print("A send is waiting for the device's signature.")
         elif args.cmd == "send":
-            write_request(w.build_send_request(args.amount, args.to), args.out, args.qr)
+            qr_request = write_request(w.build_send_request(args.amount, args.to), args.out)
         elif args.cmd == "melt":
             req = w.build_melt_request(args.invoice)
             print(f"Quote {req['quote']}: pay {req['amount']} sat, fee reserve {req['fee_reserve']} sat.")
-            write_request(req, args.out, args.qr)
+            qr_request = write_request(req, args.out)
         elif args.cmd == "receive":
             req = w.build_receive_request(args.token, args.pubkey)
             total = sum(p["amount"] for p in req["inputs"])
             print(f"Receiving {total} sat (mint fee {total - sum(o['amount'] for o in req['outputs'])} sat).")
-            write_request(req, args.out, args.qr)
+            qr_request = write_request(req, args.out)
         elif args.cmd == "submit":
             if args.scan is not None:
                 sig = scan_signature(args.scan)
@@ -255,6 +291,8 @@ def main():
             if w.state.get("undelivered_tokens"):
                 print_tokens(w)  # even if a later step failed
             w.close()
+    if qr_request and args.qr:  # with the wallet closed, so submit can run meanwhile
+        show_request(qr_request)
 
 
 if __name__ == "__main__":
