@@ -421,6 +421,54 @@ class TestMeltRecovery(Base):
         self.assertEqual(self.w.balance(), self.paid)
         self.assertEqual(self.w.state["unclaimed_change"], [])
 
+    def test_unclaimed_change_dropped_when_restore_finds_none(self):
+        # the whole fee reserve was used: restore works but finds nothing; stop retrying
+        self.mint.fail["melt"] = "after"
+        with self.assertRaises(MintUnavailable):
+            self.w.submit(self.sig)
+        orig = self.real.melt_quote_state
+        self.real.melt_quote_state = lambda q: dict(orig(q), change=None)
+        self.mint.fail["restore"] = "reject"
+        self.w.recover()
+        self.real.restore = lambda outputs: {}
+        self.assertEqual(self.w.recover(), {})
+        self.assertEqual(self.w.state["unclaimed_change"], [])
+
+    def test_failed_path_rechecks_quote(self):
+        # quote UNPAID on the first lookup, then our melt lands: PAID on the second
+        self.mint.fail["melt"] = "before"
+        with self.assertRaises(MintUnavailable):
+            self.w.submit(self.sig)
+        orig, calls = self.real.melt_quote_state, []
+
+        def state(q):
+            calls.append(q)
+            if len(calls) == 1:
+                before = orig(q)
+                inputs = [dict(p) for p in self.req["inputs"]]
+                inputs[0]["witness"] = json.dumps({"signatures": [self.sig["signature"]]})
+                self.real.melt(q, inputs, self.req["outputs"])  # lands right after we looked
+                return before
+            return orig(q)
+        self.real.melt_quote_state = state
+        res = self.w.recover()
+        self.assertEqual(res["melt"], "done")
+        self.assert_paid(self.w, res["melt_result"])
+
+    def test_forgotten_quote_of_cancelled_melt_released(self):
+        self.cancel_after_not_sent()
+        del self.real.melt_quotes[self.req["quote"]]  # the mint answers 404
+        self.w.state["abandoned_sends"][0]["cancelled_at"] -= 2 * 3600
+        self.assertEqual(self.w.recover(), {"released": self.in_total()})
+        self.assertEqual(self.w.balance(), 100)
+
+    def test_cancelled_melt_not_released_while_quote_pending(self):
+        self.cancel_after_not_sent()
+        self.real.melt_quotes[self.req["quote"]]["state"] = "PENDING"
+        self.w.state["abandoned_sends"][0]["cancelled_at"] -= 2 * 3600
+        self.assertEqual(self.w.recover(), {})
+        self.assertEqual(self.w.reserved_balance(), self.in_total())
+
 
 class TestFundRecovery(Base):
     def test_mint_reply_lost(self):

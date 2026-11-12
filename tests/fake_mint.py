@@ -97,6 +97,8 @@ class FakeMint:
         return self.melt_quote_state(q["quote"])
 
     def melt_quote_state(self, quote_id):
+        if quote_id not in self.melt_quotes:
+            raise MintError("quote not found")  # a 4xx, like a 404
         return {k: v for k, v in self.melt_quotes[quote_id].items() if not k.startswith("_")}
 
     def melt(self, quote_id, inputs, outputs):
