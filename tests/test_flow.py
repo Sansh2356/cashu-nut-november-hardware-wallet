@@ -296,7 +296,7 @@ class TestTestnutMelt(unittest.TestCase):
         w = HostWallet(os.path.join(tempfile.mkdtemp(), "w.json"), client, url)
         self.addCleanup(w.close)
         w.fund(40, dev.pubkey_hex)
-        invoice = client.mint_quote(10)["request"]  # testnut's fake wallet "pays" any invoice
+        invoice = make_invoice(10)  # testnut's fake wallet "pays" any valid invoice
         req = w.build_melt_request(invoice)
         print("\n  testnut melt screen:\n   " + "\n   ".join(summary_lines(dev.review(req))))
         preimage, change = w.submit(wire.decode_signature(wire.encode_signature(dev.sign(req))))
