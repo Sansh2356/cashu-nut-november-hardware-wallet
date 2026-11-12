@@ -210,6 +210,12 @@ class TestMelt(FlowBase):
         with self.assertRaises(Rejected):
             self.device.review(hidden)
 
+    def test_too_few_change_outputs_rejected(self):
+        # with fewer blank outputs the mint could not return all the overpaid amount
+        short = dict(self.req, outputs=self.req["outputs"][:-1], reveals=self.req["reveals"][:-1])
+        with self.assertRaises(Rejected):
+            self.device.review(short)
+
     def test_tampered_change_reveal(self):
         req = copy.deepcopy(self.req)
         req["reveals"][self.change_index()]["secret"] = crypto.make_p2pk_secret(self.device.pubkey_hex)
