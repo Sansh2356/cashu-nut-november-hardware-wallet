@@ -169,5 +169,31 @@ class TestReceiveRecovery(Base):
         self.assertFalse(bob.state.get("undelivered_tokens"))
 
 
+@unittest.skipUnless(os.environ.get("NUTSIGNER_TESTNUT"), "set NUTSIGNER_TESTNUT=1 to run the demo on testnut.cashu.space")
+class TestTestnutDemo(unittest.TestCase):
+    def test_demo(self):
+        from nutsigner.mint import MintClient
+        url = "https://testnut.cashu.space"
+        tmp = tempfile.mkdtemp()
+        alice_dev, bob_dev = DeviceSigner.from_mnemonic(ALICE), DeviceSigner.from_mnemonic(BOB)
+        alice = HostWallet(os.path.join(tmp, "a.json"), MintClient(url), url)
+        bob = HostWallet(os.path.join(tmp, "b.json"), MintClient(url), url)
+        self.addCleanup(alice.close)
+        self.addCleanup(bob.close)
+        alice.fund(100, alice_dev.pubkey_hex)
+        req = alice.build_send_request(21, bob_dev.pubkey_hex)
+        token, _, _ = alice.submit(sign_over_qr(alice_dev, over_qr(req)))
+        req = bob.build_receive_request(token, bob_dev.pubkey_hex)
+        print("\n  testnut receive:\n   " + "\n   ".join(summary_lines(bob_dev.review(req))))
+        bob.submit(sign_over_qr(bob_dev, over_qr(req)))
+        received = bob.balance()
+        self.assertGreater(received, 15)
+        req = bob.build_melt_request(make_invoice(5))
+        print("  testnut melt:\n   " + "\n   ".join(summary_lines(bob_dev.review(req))))
+        bob.submit(sign_over_qr(bob_dev, over_qr(req)))
+        print(f"  Bob: received {received}, after paying 5 sat: {bob.balance()} sat")
+        self.assertLessEqual(bob.balance(), received - 5)
+
+
 if __name__ == "__main__":
     unittest.main()
