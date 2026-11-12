@@ -200,6 +200,11 @@ def main():
             elif result.get("send") == "failed":
                 print("The pending send can never complete: another transaction spent its "
                       "inputs. It was cleared.")
+            for late in result.get("late_melts", []):
+                print("A payment you cancelled was completed by the mint after all.")
+                print_melt_result(late)
+            if result.get("late_change"):
+                print(f"Collected {result['late_change']} sat of change from an earlier payment.")
             if result.get("melt") == "done":
                 print_melt_result(result["melt_result"])
             elif result.get("melt") == "pending":
@@ -207,6 +212,9 @@ def main():
             elif result.get("melt") == "not_sent":
                 print("The invoice was not paid. Your funds are untouched; "
                       "submit the same signature again or cancel.")
+            elif result.get("melt") == "failed":
+                print("The pending payment can never complete: another transaction spent its "
+                      "inputs. It was cleared.")
             print(f"Balance: {w.balance()} sat.")
         elif args.cmd == "abandon-fund":
             quote, archived = w.abandon_fund()

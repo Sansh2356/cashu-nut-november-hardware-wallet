@@ -355,7 +355,7 @@ class TestMeltRecovery(Base):
         self.real.settle_melt(self.req["quote"], ok=False)  # mint gives the inputs back
         self.assertEqual(self.w.recover(), {"melt": "not_sent"})
         self.w.cancel_pending()
-        self.assertEqual(self.w.balance(), 100)
+        self.assertEqual(self.w.balance() + self.w.reserved_balance(), 100)
 
     def test_rejected_melt_is_not_in_flight(self):
         self.mint.fail["melt"] = "reject"
@@ -363,7 +363,63 @@ class TestMeltRecovery(Base):
             self.w.submit(self.sig)
         self.assertFalse(self.w.in_flight())
         self.w.cancel_pending()
+        self.assertEqual(self.w.balance() + self.w.reserved_balance(), 100)
+
+    def in_total(self):
+        return sum(p["amount"] for p in self.req["inputs"])
+
+    def cancel_after_not_sent(self):
+        self.mint.fail["melt"] = "before"
+        with self.assertRaises(MintUnavailable):
+            self.w.submit(self.sig)
+        self.assertEqual(self.w.recover(), {"melt": "not_sent"})
+        self.w.cancel_pending()
+
+    def test_cancelled_melt_lands_later(self):
+        # the cancel races a melt request still in transit; recover collects it
+        self.cancel_after_not_sent()
+        self.assertEqual(self.w.reserved_balance(), self.in_total())  # inputs kept out of new sends
+        inputs = [dict(p) for p in self.req["inputs"]]
+        inputs[0]["witness"] = json.dumps({"signatures": [self.sig["signature"]]})
+        self.real.melt(self.req["quote"], inputs, self.req["outputs"])
+        res = self.reopen().recover()
+        self.assertEqual(len(res["late_melts"]), 1)
+        self.assertEqual((self.w.balance(), self.w.reserved_balance()), (self.paid, 0))
+        self.assertEqual(self.w.state["abandoned_sends"], [])
+
+    def test_cancelled_melt_released_after_an_hour(self):
+        self.cancel_after_not_sent()
+        self.w.state["abandoned_sends"][0]["cancelled_at"] -= 2 * 3600
+        self.assertEqual(self.w.recover(), {"released": self.in_total()})
         self.assertEqual(self.w.balance(), 100)
+
+    def test_unpaid_quote_with_spent_inputs_fails(self):
+        # another transaction spent the inputs: this melt can never complete
+        self.mint.fail["melt"] = "before"
+        with self.assertRaises(MintUnavailable):
+            self.w.submit(self.sig)
+        self.real.spent.add(self.req["inputs"][0]["secret"])
+        self.assertEqual(self.reopen().recover(), {"melt": "failed"})
+        self.assertIsNone(self.w.state["pending"])
+        self.assertFalse(self.w.in_flight())
+        self.assertEqual(self.w.balance(), 100 - self.req["inputs"][0]["amount"])
+        self.w.build_melt_request(make_invoice(5))  # wallet usable again
+
+    def test_change_kept_when_paid_but_unrestorable(self):
+        # PAID, no change in the quote state and restore refused: keep the
+        # outputs' blinding data and collect the change on a later recover
+        self.mint.fail["melt"] = "after"
+        with self.assertRaises(MintUnavailable):
+            self.w.submit(self.sig)
+        orig = self.real.melt_quote_state
+        self.real.melt_quote_state = lambda q: dict(orig(q), change=None)
+        self.mint.fail["restore"] = "reject"
+        self.assertEqual(self.w.recover()["melt"], "done")
+        self.assertIsNone(self.w.state["pending"])
+        self.assertEqual(self.w.balance(), 100 - self.in_total())
+        self.assertEqual(self.reopen().recover(), {"late_change": self.paid - (100 - self.in_total())})
+        self.assertEqual(self.w.balance(), self.paid)
+        self.assertEqual(self.w.state["unclaimed_change"], [])
 
 
 class TestFundRecovery(Base):
