@@ -127,6 +127,24 @@ class TestWithFees(FlowBase):
         token, sent, change = self.wallet.submit(self.device.sign(req))
         self.assertEqual(self.wallet.balance(), 100 - 21 - review["fee"])
 
+    def test_tight_selection_covers_and_cannot_shrink(self):
+        """With input fees: covers amount + fee, and dropping any one input breaks it."""
+        import random
+        rnd = random.Random(3)
+        for _ in range(200):
+            amounts = [1 << rnd.randrange(8) for _ in range(rnd.randint(1, 8))]
+            need = rnd.randint(1, sum(amounts))
+            try:
+                chosen = tight_select(self.wallet, amounts, need)
+            except WalletError:
+                continue
+            fee = self.wallet._fee
+            with self.subTest(amounts=amounts, need=need):
+                self.assertGreaterEqual(sum(p["amount"] for p in chosen), need + fee(chosen))
+                for p in chosen:
+                    rest = [c for c in chosen if c is not p]
+                    self.assertLess(sum(c["amount"] for c in rest), need + fee(rest))
+
     def test_melt_with_input_fees(self):
         req = self.wallet.build_melt_request(make_invoice(30))
         in_fee = self.wallet._fee(req["inputs"])
@@ -134,6 +152,13 @@ class TestWithFees(FlowBase):
         self.assertGreaterEqual(sum(p["amount"] for p in req["inputs"]), 30 + req["fee_reserve"] + in_fee)
         self.wallet.submit(self.device.sign(req))
         self.assertEqual(self.wallet.balance(), 100 - 30 - self.mint.ln_fee - in_fee)
+
+
+def tight_select(wallet, amounts, need):
+    """Run melt input selection over made-up proofs of these amounts."""
+    ks = wallet._active_keyset()["id"]
+    wallet.state["proofs"] = [{"amount": a, "id": ks, "secret": str(i), "C": ""} for i, a in enumerate(amounts)]
+    return wallet._select(need, tight=True)[0]
 
 
 class TestMelt(FlowBase):
@@ -236,6 +261,11 @@ class TestMelt(FlowBase):
     def test_inputs_selected_tightly(self):
         # proofs are 4, 32, 64: 30 + fee reserve 4 is covered by 32 + 4, not by 64
         self.assertEqual(sorted(p["amount"] for p in self.req["inputs"]), [4, 32])
+        # review round 3: each of these was overshot (120, 60, 15)
+        for amounts, need, best in (([64, 32, 16, 8], 60, 64), ([32, 16, 8, 4], 40, 40),
+                                    ([64, 8, 4, 2, 1], 12, 12)):
+            with self.subTest(amounts=amounts, need=need):
+                self.assertEqual(sum(p["amount"] for p in tight_select(self.wallet, amounts, need)), best)
 
     def test_redirect_to_other_quote_bounded_by_inputs(self):
         """Review finding: a host swaps in the quote of a bigger invoice.

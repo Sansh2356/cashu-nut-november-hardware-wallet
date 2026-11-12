@@ -348,25 +348,30 @@ class HostWallet:
     def _select(self, amount, tight=False):
         """Coin selection: largest first, re-checking the fee as inputs are added.
 
-        tight (melts, where the device counts every input as at risk): first
-        take proofs that don't overshoot, then close the gap with the smallest
-        proof that does. Returns (inputs, what is left after amount and input fee).
+        tight (melts, where the device counts every input as at risk): take
+        proofs that don't overshoot, close the gap with the smallest proof that
+        does, then drop any proof (smallest first) the rest can do without.
+        Returns (inputs, what is left after amount and input fee).
         """
         pool = sorted(self._spendable(), key=lambda p: -p["amount"])
 
-        def short(c):
+        def short(c):  # how much c lacks, input fee included; < 0 is overshoot
             return amount + self._fee(c) - sum(p["amount"] for p in c)
         chosen = []
         if tight:
             for p in pool:
-                if p["amount"] <= short(chosen + [p]):
+                if short(chosen + [p]) >= 0:
                     chosen.append(p)
         rest = [p for p in pool if p not in chosen]
         while short(chosen) > 0 and rest:
-            fits = [p for p in rest if p["amount"] >= short(chosen + [p])] if tight else []
+            fits = [p for p in rest if short(chosen + [p]) <= 0] if tight else []
             p = min(fits, key=lambda p: p["amount"]) if fits else rest[0]
             chosen.append(p)
             rest.remove(p)
+        if tight:
+            for p in sorted(chosen, key=lambda p: p["amount"]):
+                if short([c for c in chosen if c is not p]) <= 0:
+                    chosen.remove(p)
         if short(chosen) > 0:
             raise WalletError(f"insufficient balance: have {self.balance()}, "
                               f"need {amount + self._fee(chosen)}")
