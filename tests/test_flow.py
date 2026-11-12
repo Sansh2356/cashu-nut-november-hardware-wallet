@@ -227,11 +227,48 @@ class TestMelt(FlowBase):
         with self.assertRaises(Rejected):
             self.device.review(dict(self.req, fee_reserve=in_total - 30 + 1))
 
-    def test_spending_limit_counts_fee_reserve(self):
-        limit = 30 + self.req["fee_reserve"]
-        DeviceSigner(self.device.privkey, max_send=limit).review(self.req)
+    def test_spending_limit_counts_all_inputs(self):
+        in_total = sum(p["amount"] for p in self.req["inputs"])
+        DeviceSigner(self.device.privkey, max_send=in_total).review(self.req)
         with self.assertRaises(Rejected):
-            DeviceSigner(self.device.privkey, max_send=limit - 1).review(self.req)
+            DeviceSigner(self.device.privkey, max_send=in_total - 1).review(self.req)
+
+    def test_inputs_selected_tightly(self):
+        # proofs are 4, 32, 64: 30 + fee reserve 4 is covered by 32 + 4, not by 64
+        self.assertEqual(sorted(p["amount"] for p in self.req["inputs"]), [4, 32])
+
+    def test_redirect_to_other_quote_bounded_by_inputs(self):
+        """Review finding: a host swaps in the quote of a bigger invoice.
+
+        The device can't see which invoice a quote id pays, so the mint pays
+        the attacker's invoice. What the device can promise is the worst case:
+        every input. The screen says so and max_send bounds it.
+        """
+        in_total = sum(p["amount"] for p in self.req["inputs"])
+        evil = dict(self.req, quote=self.mint.melt_quote(make_invoice(in_total - 4))["quote"])
+        lines = summary_lines(self.device.review(evil))
+        self.assertIn(f"Up to {in_total} sat at risk", lines)
+        self.assertIn("Payee not verified", lines)
+        self.assertFalse(any(line.startswith(("Change", "Hash")) for line in lines))
+        with self.assertRaises(Rejected):
+            DeviceSigner(self.device.privkey, max_send=in_total - 1).review(evil)
+        # signed anyway, the mint pays the other, bigger invoice: the device can't stop it
+        sig = self.device.sign(evil)
+        inputs = [dict(p) for p in evil["inputs"]]
+        inputs[0]["witness"] = json.dumps({"signatures": [sig["signature"]]})
+        self.mint.melt(evil["quote"], inputs, evil["outputs"])
+        self.assertEqual(self.mint.melt_quotes[evil["quote"]]["amount"], in_total - 4)
+
+    def test_blank_outputs_must_be_zero(self):
+        req = copy.deepcopy(self.req)
+        req["outputs"][0]["amount"] = 1
+        with self.assertRaises(Rejected):
+            self.device.review(req)
+
+    def test_other_network_invoice_rejected(self):
+        for hrp in ("lntb", "lnbcrt", "lntbs", "lnsb"):
+            with self.subTest(hrp=hrp), self.assertRaises(Rejected):
+                self.device.review(dict(self.req, invoice=make_invoice(30, hrp=hrp)))
 
     def test_signature_reused_for_other_quote_rejected_by_mint(self):
         sig = self.device.sign(self.req)
