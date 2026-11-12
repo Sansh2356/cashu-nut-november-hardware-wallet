@@ -700,6 +700,32 @@ class TestCliErrors(unittest.TestCase):
             host_cli.main()
         return str(e.exception.code)
 
+    def test_cli_melt_then_submit(self):
+        import contextlib
+        import io
+        import sys
+        from unittest import mock
+        import host_cli
+        mint, tmp = FakeMint(), tempfile.mkdtemp()
+        wp, rp, sp = (os.path.join(tmp, n) for n in ("w.json", "r.json", "s.json"))
+        dev = DeviceSigner.from_mnemonic(MNEMONIC)
+        w = HostWallet(wp, mint, host_cli.DEFAULT_MINT)
+        w.fund(50, dev.pubkey_hex)
+        w.close()
+        out = io.StringIO()
+
+        def cli(*argv):
+            with mock.patch.object(host_cli, "MintClient", lambda url: mint), \
+                    mock.patch.object(sys, "argv", ["host_cli.py", "--wallet", wp, *argv]), \
+                    contextlib.redirect_stdout(out):
+                host_cli.main()
+        cli("melt", make_invoice(20), "-o", rp)
+        with open(rp) as f, open(sp, "w") as g:
+            json.dump(dev.sign(json.load(f)), g)
+        cli("submit", sp)
+        self.assertIn("Invoice paid", out.getvalue())
+        self.assertIn(f"Balance: {50 - 20 - mint.ln_fee} sat", out.getvalue())
+
     def test_os_errors_are_clean(self):
         self.mint = FakeMint()
         tmp = tempfile.mkdtemp()
