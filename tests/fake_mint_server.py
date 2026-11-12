@@ -46,6 +46,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, MINT.mint_quote_state(p.rsplit("/", 1)[1]))
             if method == "POST" and p == "/v1/mint/bolt11":
                 return self._send(200, {"signatures": MINT.mint(body["quote"], body["outputs"])})
+            if method == "POST" and p == "/v1/melt/quote/bolt11":
+                return self._send(200, MINT.melt_quote(body["request"], body.get("unit", "sat")))
+            if method == "GET" and p.startswith("/v1/melt/quote/bolt11/"):
+                return self._send(200, MINT.melt_quote_state(p.rsplit("/", 1)[1]))
+            if method == "POST" and p == "/v1/melt/bolt11":
+                return self._send(200, MINT.melt(body["quote"], body["inputs"], body.get("outputs", [])))
             if method == "POST" and p == "/v1/checkstate":
                 return self._send(200, {"states": MINT.check_state(body["Ys"])})
             if method == "POST" and p == "/v1/restore":

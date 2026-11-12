@@ -96,6 +96,17 @@ class MintClient:
         resp = self._req("POST", "/v1/swap", {"inputs": inputs, "outputs": outputs})
         return self._field(resp, "signatures", len(outputs))
 
+    # NUT-05 (+ NUT-08 blank outputs for fee change)
+    def melt_quote(self, invoice, unit="sat"):
+        return self._req("POST", "/v1/melt/quote/bolt11", {"request": invoice, "unit": unit})
+
+    def melt_quote_state(self, quote_id):
+        return self._req("GET", f"/v1/melt/quote/bolt11/{quote_id}")
+
+    def melt(self, quote_id, inputs, outputs):
+        """Returns the melt quote as the mint reports it (state, change, preimage)."""
+        return self._req("POST", "/v1/melt/bolt11", {"quote": quote_id, "inputs": inputs, "outputs": outputs})
+
     # NUT-07
     def check_state(self, ys):
         """ys: hex Y = hash_to_curve(secret). Returns states in the same order."""

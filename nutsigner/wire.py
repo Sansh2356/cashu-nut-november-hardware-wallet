@@ -1,8 +1,9 @@
 """Compact binary format (v2) for requests and signatures, sized for QR codes.
 
 Request v2:
-  "NS" | version 2 | type (1 = swap)
+  "NS" | version 2 | type (1 = swap, 2 = melt)
   mint url, unit                         (length + bytes each)
+  melt only: invoice, quote id (length + bytes each), amount, fee_reserve
   keyset table   count, then each id     (length + bytes)   <- listed once
   inputs         count, then each: amount, keyset index, secret (length + bytes), C (33 bytes)
   outputs        count, then each: amount, keyset index, B_ (33 bytes)
@@ -31,6 +32,7 @@ import json
 MAGIC = b"NS"
 VERSION = 2
 TYPE_SWAP = 1
+TYPE_MELT = 2
 SIGNATURE_LEN = 3 + 33 + 32 + 64
 MAX_VARINT_BYTES = 10  # 64-bit values; refuse huge ints from hostile input
 
@@ -87,16 +89,20 @@ def _secret(s: str) -> bytes:
 
 def encode_request(req: dict) -> bytes:
     """v1 request dict -> v2 bytes."""
-    if req.get("v") != 1 or req.get("type") != "swap":
-        raise WireError("only v1 swap requests can be encoded")
+    melt = req.get("type") == "melt"
+    if req.get("v") != 1 or not (melt or req.get("type") == "swap"):
+        raise WireError("only v1 swap and melt requests can be encoded")
     ids = []
     for item in req["inputs"] + req["outputs"]:
         if item["id"] not in ids:
             ids.append(item["id"])
     index = {kid: i for i, kid in enumerate(ids)}
 
-    out = bytearray(MAGIC + bytes([VERSION, TYPE_SWAP]))
+    out = bytearray(MAGIC + bytes([VERSION, TYPE_MELT if melt else TYPE_SWAP]))
     out += _blob(req["mint"].encode()) + _blob(req["unit"].encode())
+    if melt:
+        out += _blob(req["invoice"].encode()) + _blob(req["quote"].encode())
+        out += _uv(req["amount"]) + _uv(req["fee_reserve"])
     out += _uv(len(ids))
     for kid in ids:
         try:
@@ -181,9 +187,13 @@ def decode_request(data: bytes) -> dict:
     r = _Reader(data)
     if r.take(2) != MAGIC or r.take(1)[0] != VERSION:
         raise WireError("not a NutSigner v2 message")
-    if r.take(1)[0] != TYPE_SWAP:
+    kind = r.take(1)[0]
+    if kind not in (TYPE_SWAP, TYPE_MELT):
         raise WireError("unsupported request type")
-    req = {"v": 1, "type": "swap", "mint": r.text("mint"), "unit": r.text("unit")}
+    req = {"v": 1, "type": "swap" if kind == TYPE_SWAP else "melt",
+           "mint": r.text("mint"), "unit": r.text("unit")}
+    if kind == TYPE_MELT:
+        req.update(invoice=r.text("invoice"), quote=r.text("quote"), amount=r.uv(), fee_reserve=r.uv())
     ids = [r.blob().hex() for _ in range(r.uv())]
     req["inputs"] = [{"amount": r.uv(), "id": ids[r.index(len(ids), "keyset index")],
                       "secret": r.secret(), "C": r.take(33).hex()}
