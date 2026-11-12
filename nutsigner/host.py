@@ -651,10 +651,15 @@ class HostWallet:
         for old in list(self.state.get("abandoned_sends", [])):
             try:
                 if old["request"]["type"] == "melt":
-                    q = self.mint.melt_quote_state(old["request"]["quote"])
+                    try:
+                        q = self.mint.melt_quote_state(old["request"]["quote"])
+                    except MintRejected:  # quote forgotten: not paid; input states decide
+                        q = {}
                     if q.get("state") == "PAID":
                         result.setdefault("late_melts", []).append(self._finish_melt(q, old))
                         continue
+                    if q.get("state") not in ("UNPAID", None):
+                        continue  # e.g. PENDING: may still be paid, keep the inputs reserved
                     sigs = []
                 else:
                     try:
@@ -677,11 +682,12 @@ class HostWallet:
         for outs in list(self.state.get("unclaimed_change", [])):
             try:
                 change = self._restore_change(outs)
-                if change:
+                if change is not None:  # [] means the whole fee reserve was used
                     self.state["proofs"].extend(change)
                     self.state["unclaimed_change"].remove(outs)
                     self.save()
-                    result["late_change"] = result.get("late_change", 0) + sum(p["amount"] for p in change)
+                    if change:
+                        result["late_change"] = result.get("late_change", 0) + sum(p["amount"] for p in change)
             except (MintError, WalletError) as e:
                 errors.append(e)
 
