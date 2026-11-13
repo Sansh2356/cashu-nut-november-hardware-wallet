@@ -187,3 +187,13 @@ prebuilt libsecp256k1 for armv6l. Copy the `nutsigner/` folder and
 
 Week 2 replaces the terminal with the 240×240 screen and buttons, and the JSON
 files with QR codes.
+
+An iterative demo for progress till now - 
+
+
+
+https://github.com/user-attachments/assets/1389ff44-1923-4f79-9fd8-399096adaa37
+
+
+
+
