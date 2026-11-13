@@ -118,6 +118,23 @@ def then_state(do):
     return action
 
 
+def decode(body):
+    """Text of the QR in a posted webcam frame (data: URL), or "": the browser's
+    fallback for the Pi's dim LCD, using the CLI's OpenCV reader. No wallet needed."""
+    import base64
+    try:
+        import cv2
+        import numpy as np
+        from nutsigner import qrview
+    except ImportError:
+        raise WalletError("OpenCV not installed (pip install -r requirements-host.txt)") from None
+    img = cv2.imdecode(np.frombuffer(base64.b64decode(body["image"].split(",", 1)[-1]), np.uint8),
+                       cv2.IMREAD_GRAYSCALE)
+    if img is None:
+        raise WalletError("not an image")
+    return {"text": qrview.decode(img)}
+
+
 ACTIONS = {
     ("GET", "/api/state"): lambda w, b: state_view(w),
     ("GET", "/api/frames"): lambda w, b: frames_view(w),
@@ -131,6 +148,7 @@ ACTIONS = {
     ("POST", "/api/abandon-fund"): then_state(lambda w, b: w.abandon_fund()),
     ("POST", "/api/tokens/clear"): then_state(lambda w, b: w.clear_tokens()),
     ("POST", "/api/recover"): lambda w, b: {"result": recover_view(w.recover()), "state": state_view(w)},
+    ("POST", "/api/decode"): decode,  # needs no wallet: see _handle
 }
 
 
@@ -175,14 +193,17 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(415, {"error": "send JSON"})
             n = int(self.headers.get("Content-Length") or 0)
             try:
-                body = json.loads(self.rfile.read(n) if 0 < n < 1 << 20 else b"{}")
+                body = json.loads(self.rfile.read(n) if 0 < n < 4 << 20 else b"{}")  # 4 MB: webcam frames
                 assert isinstance(body, dict)
             except (ValueError, AssertionError):
                 return self._send(400, {"error": "request body is not a JSON object"})
         srv, w = self.server, None
         try:
-            w = HostWallet(srv.wallet_path, srv.mint, srv.mint_url)
-            code, out = 200, action(w, body)
+            if action is decode:
+                code, out = 200, decode(body)
+            else:
+                w = HostWallet(srv.wallet_path, srv.mint, srv.mint_url)
+                code, out = 200, action(w, body)
         except WalletBusy as e:
             code, out = 409, {"error": str(e)}
         except (MintError, WalletError, KeyError, TypeError, ValueError) as e:
