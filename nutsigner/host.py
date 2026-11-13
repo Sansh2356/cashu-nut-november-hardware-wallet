@@ -722,9 +722,12 @@ class HostWallet:
         self.save()
         return token, sent, change
 
-    def clear_tokens(self):
-        """Call after the undelivered tokens have been shown to the user."""
-        self.state["undelivered_tokens"] = []
+    def clear_tokens(self, shown):
+        """Forget the undelivered tokens in shown (those the user has seen); keep the rest."""
+        if not isinstance(shown, list):
+            raise WalletError("list the tokens that were shown")
+        self.state["undelivered_tokens"] = [t for t in self.state.get("undelivered_tokens", [])
+                                            if t not in shown]
         self.save()
 
     def in_flight(self) -> bool:

@@ -100,7 +100,7 @@ class TestFlows(Base):
         self.assertEqual(out["result"]["type"], "send")
         token = self.alice.get("/api/state")["tokens"][0]
         self.assertTrue(token.startswith("cashuA"))
-        self.alice.post("/api/tokens/clear")
+        self.alice.post("/api/tokens/clear", {"tokens": [token]})
         state = self.alice.get("/api/state")
         self.assertEqual((state["tokens"], state["balance"], state["pending"]), ([], 78, None))
 
@@ -134,6 +134,16 @@ class TestFlows(Base):
         self.assertIsNone(view["pending"]["to"])
         self.alice.post("/api/submit", {"qr": self.alice.sign(self.alice_dev, view)})
         self.assertEqual(len(self.alice.get("/api/state")["tokens"]), 1)
+
+    def test_clear_only_the_tokens_shown(self):
+        self.funded(self.alice, self.alice_dev)
+        for _ in range(2):
+            view = self.alice.post("/api/send", {"amount": 5})
+            self.alice.post("/api/submit", {"qr": self.alice.sign(self.alice_dev, view)})
+        shown, unseen = self.alice.get("/api/state")["tokens"]  # the page showed only the first
+        self.assertEqual(self.alice.post("/api/tokens/clear", {"tokens": [shown]})["state"]["tokens"], [unseen])
+        self.alice.post("/api/tokens/clear", expect=400)  # no list: nothing cleared
+        self.assertEqual(self.alice.get("/api/state")["tokens"], [unseen])
 
     def test_cancel(self):
         self.funded(self.alice, self.alice_dev)
