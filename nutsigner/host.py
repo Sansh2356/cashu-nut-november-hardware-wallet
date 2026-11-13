@@ -67,7 +67,8 @@ def decode_token_v3(token: str):
         raise WalletError("not a cashuA token (cashuB tokens are not supported yet)")
     try:
         b64 = token[6:]
-        data = json.loads(base64.urlsafe_b64decode(b64 + "=" * (-len(b64) % 4)))
+        # strict: no characters outside base64url and nothing after the padding
+        data = json.loads(base64.b64decode(b64 + "=" * (-len(b64) % 4), altchars="-_", validate=True))
         entries = data["token"]
         mints = {e["mint"].rstrip("/") for e in entries}
         proofs = [{k: p[k] for k in ("amount", "id", "secret", "C")} for e in entries for p in e["proofs"]]
