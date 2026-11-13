@@ -75,11 +75,17 @@ same token again; the app refuses it, already spent.)
 
 ## 4. Bob pays a Lightning invoice
 
-Any testnut invoice works; this prints one for 5 sat:
+testnut pays any well-formed invoice it did not issue itself. This prints one for 5 sat:
 
 ```bash
 python3 -c "from tests.fake_mint import make_invoice; print(make_invoice(5))"
 ```
+
+Don't use an invoice from testnut itself, including one from cashu.me on the
+testnut mint. testnut fake-pays its own invoices the moment it issues them, so
+the melt fails with `Invoice already paid` after the Pi has signed. Nothing is
+spent; press Cancel. If Get quote returns `Invalid payment method`, testnut had
+a hiccup; press it again.
 
 Bob's app: **Pay invoice** → paste → Get quote. The app shows `Pay 5 sat`,
 the fee reserve and the inputs at risk, then the request QR.
