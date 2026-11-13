@@ -381,7 +381,7 @@ function Pending({ state, run, go, recover }) {
           <Summary p={pend} />
           <div className="row">
             {!pend.submitted && <button className="primary" onClick={async () => { const v = await run(() => api("frames")); if (v) setView(v); }}>Show request QR</button>}
-            <button onClick={() => run(() => api("cancel", {}))}>Cancel</button>
+            {!pend.submitted && <button onClick={() => run(() => api("cancel", {}))}>Cancel</button>}
           </div>
         </>
       ) : state.pending_fund ? (
