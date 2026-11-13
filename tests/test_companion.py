@@ -213,6 +213,8 @@ class TestErrors(Base):
         self.assertEqual(status, 403)
         status, _ = self.alice.call("POST", "/api/cancel", {}, headers={"Content-Type": "text/plain"})
         self.assertEqual(status, 415)
+        status, _ = self.alice.call("POST", "/api/cancel", {}, headers={"Content-Length": "abc"})
+        self.assertEqual(status, 400)
 
     def test_api_needs_the_page_token(self):
         dist = os.path.join(self.tmp, "dist")
