@@ -204,5 +204,44 @@ class TestErrors(Base):
         self.assertEqual(status, 415)
 
 
+class TestDecode(Base):
+    """The browser's fallback: post a webcam frame, the OpenCV reader decodes it."""
+
+    def setUp(self):
+        super().setUp()
+        try:
+            import cv2  # noqa: F401
+        except ImportError:
+            self.skipTest("OpenCV not installed (pip install -r requirements-host.txt)")
+
+    def jpeg(self, img):
+        import base64
+
+        import cv2
+        return "data:image/jpeg;base64," + base64.b64encode(cv2.imencode(".jpg", img)[1]).decode()
+
+    def test_decodes_a_dim_frame(self):
+        import numpy as np
+
+        from nutsigner import qrview
+        text = qr.single(b"\x01" * 132)
+        img = qrview.render(text, 300)
+        frame = np.full((720, 1280), 90, np.uint8)  # dim LCD, small in a 720p frame
+        frame[200:200 + img.shape[0], 400:400 + img.shape[1]] = 90 + (img // 255) * 40
+        self.assertEqual(self.alice.post("/api/decode", {"image": self.jpeg(frame)})["text"], text)
+
+    def test_no_qr_and_bad_image(self):
+        import numpy as np
+        self.assertEqual(self.alice.post("/api/decode", {"image": self.jpeg(np.zeros((90, 160), np.uint8))}),
+                         {"text": ""})
+        self.alice.post("/api/decode", {"image": "data:image/jpeg;base64,AAAA"}, expect=400)
+
+    def test_works_while_the_cli_holds_the_wallet(self):
+        import numpy as np
+        w = HostWallet(self.alice.wallet, self.mint, URL)
+        self.addCleanup(w.close)
+        self.alice.post("/api/decode", {"image": self.jpeg(np.zeros((90, 160), np.uint8))})
+
+
 if __name__ == "__main__":
     unittest.main()
