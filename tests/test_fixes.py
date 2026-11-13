@@ -233,7 +233,7 @@ class TestSubmitRecovery(Base):
             self.w.recover()
         tokens = self.reopen().state["undelivered_tokens"]
         self.assertEqual(len(tokens), 1)  # the late send's token is on disk
-        self.w.clear_tokens()
+        self.w.clear_tokens(tokens)
         self.assertEqual(self.reopen().state["undelivered_tokens"], [])
 
     def test_malformed_check_state_is_unknown_outcome(self):

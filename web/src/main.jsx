@@ -87,7 +87,7 @@ function Tokens({ state, run }) {
         </div>
       ))}
       <p className="muted">Kept in the wallet file until you confirm you have it.</p>
-      <button className="primary" onClick={() => run(() => api("tokens/clear", {}))}>I have it, clear</button>
+      <button className="primary" onClick={() => run(() => api("tokens/clear", { tokens: state.tokens }))}>I have it, clear</button>
     </section>
   );
 }
