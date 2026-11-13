@@ -104,6 +104,13 @@ class TestReceiveRefusals(Base):
         carol = DeviceSigner.from_mnemonic(CAROL)
         self.assert_refused(self.send(21, carol.pubkey_hex), "locked to a different key")
 
+    def test_junk_after_token_padding(self):
+        # lenient base64 drops anything after "=", so a garbled paste looked valid
+        token = self.send(21, self.bob_dev.pubkey_hex)
+        self.assertTrue(token.endswith("="))
+        self.assert_refused(token + "adsadasdasd", "malformed")
+        self.assert_refused(token + "!", "malformed")
+
     def test_unlocked_token(self):
         self.assert_refused(self.send(21, None), "not locked")
 
