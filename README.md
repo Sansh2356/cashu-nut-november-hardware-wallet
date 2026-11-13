@@ -53,7 +53,8 @@ python3 companion.py --wallet alice.json     # opens http://127.0.0.1:8338
 
 `--mint` picks the mint (default testnut), `--port` the port, `--no-browser`
 skips opening a tab. The app listens on 127.0.0.1 only and refuses other
-sites' requests. It runs `recover` on start; the wallet file is opened for one
+sites' requests; its API answers only calls carrying a random token that is new
+each run and known only to the page it serves. It runs `recover` on start; the wallet file is opened for one
 API call at a time, so `host_cli.py` can use the same file while it runs.
 `docs/DEMO.md` walks through the two-user demo with it.
 
