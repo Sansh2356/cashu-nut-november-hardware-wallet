@@ -36,7 +36,8 @@ class App:
     def call(self, method, path, body=None, headers=None):
         data = json.dumps(body).encode() if body is not None else None
         req = urllib.request.Request(self.base + path, data=data, method=method,
-                                     headers={"Content-Type": "application/json", **(headers or {})})
+                                     headers={"Content-Type": "application/json",
+                                              "X-NutSigner-Token": self.server.token, **(headers or {})})
         try:
             with urllib.request.urlopen(req, timeout=10) as r:
                 return r.status, json.loads(r.read())
@@ -212,6 +213,21 @@ class TestErrors(Base):
         self.assertEqual(status, 403)
         status, _ = self.alice.call("POST", "/api/cancel", {}, headers={"Content-Type": "text/plain"})
         self.assertEqual(status, 415)
+
+    def test_api_needs_the_page_token(self):
+        dist = os.path.join(self.tmp, "dist")
+        os.mkdir(dist)
+        with open(os.path.join(dist, "index.html"), "w") as f:
+            f.write("<!doctype html><html><head><title>NutSigner</title></head><body></body></html>")
+        self.alice.server.dist = dist
+        with urllib.request.urlopen(self.alice.base + "/") as r:  # the page carries this run's token
+            self.assertIn(f'<meta name="nutsigner-token" content="{self.alice.server.token}">', r.read().decode())
+        for token in ("", "wrong"):
+            status, out = self.alice.call("GET", "/api/state", headers={"X-NutSigner-Token": token})
+            self.assertEqual((status, out), (403, {"error": "forbidden"}))
+        other = companion.make_server(self.alice.wallet, self.mint, URL, port=0)  # a new token each run
+        self.addCleanup(other.server_close)
+        self.assertNotEqual(other.token, self.alice.server.token)
 
 
 class TestAbandonFund(Base):

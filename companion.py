@@ -14,6 +14,7 @@ import argparse
 import json
 import mimetypes
 import os
+import secrets
 import struct
 import sys
 import webbrowser
@@ -214,6 +215,9 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?", 1)[0]
         if not path.startswith("/api/"):
             return self._static(path) if method == "GET" else self._send(405, {"error": "method not allowed"})
+        # only our page knows this run's token (see _static): other local programs and pages don't
+        if not secrets.compare_digest(self.headers.get("X-NutSigner-Token", ""), self.server.token):
+            return self._send(403, {"error": "forbidden"})
         action = ACTIONS.get((method, path))
         if not action:
             return self._send(404, {"error": "not found"})
@@ -259,7 +263,10 @@ class Handler(BaseHTTPRequestHandler):
         if not os.path.isfile(f):
             return self._send(503, b"UI not built: cd web && npm install && npm run build\n", "text/plain")
         with open(f, "rb") as fh:
-            self._send(200, fh.read(), mimetypes.guess_type(f)[0] or "application/octet-stream")
+            body = fh.read()
+        if f == os.path.join(root, "index.html"):
+            body = body.replace(b"<head>", f'<head><meta name="nutsigner-token" content="{self.server.token}">'.encode(), 1)
+        self._send(200, body, mimetypes.guess_type(f)[0] or "application/octet-stream")
 
     def log_message(self, *a):
         pass
@@ -270,6 +277,7 @@ def make_server(wallet_path, mint, mint_url, port=8338, dist=DIST):
     # also what keeps two calls from fighting over the wallet lock.
     srv = HTTPServer(("127.0.0.1", port), Handler)
     srv.wallet_path, srv.mint, srv.mint_url, srv.dist = wallet_path, mint, mint_url.rstrip("/"), dist
+    srv.token = secrets.token_urlsafe(32)  # per run: the API answers only the page we served
     return srv
 
 
