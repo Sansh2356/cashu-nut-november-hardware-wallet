@@ -204,6 +204,42 @@ class TestErrors(Base):
         self.assertEqual(status, 415)
 
 
+class TestAbandonFund(Base):
+    def test_paid_funding_is_finished_not_lost(self):
+        self.alice.post("/api/pair", {"pubkey": self.alice_dev.pubkey_hex})
+        self.alice.post("/api/fund", {"amount": 100})  # FakeMint marks the quote PAID at once
+        quote = self.alice.get("/api/state")["pending_fund"]["quote"]
+        out = self.alice.post("/api/abandon-fund")  # "Give up" before the UI's poll
+        self.assertEqual((out["quote"], out["outcome"]), (quote, "funded"))
+        self.assertEqual((out["state"]["balance"], out["state"]["pending_fund"]), (100, None))
+
+    def test_mint_unreachable_archives(self):
+        flaky = Flaky(self.mint)
+        app = App(self, os.path.join(self.tmp, "f.json"), flaky)
+        app.post("/api/pair", {"pubkey": self.alice_dev.pubkey_hex})
+        app.post("/api/fund", {"amount": 100})
+        quote = app.get("/api/state")["pending_fund"]["quote"]
+        flaky.fail["restore"] = "before"
+        out = app.post("/api/abandon-fund")
+        self.assertEqual((out["quote"], out["outcome"]), (quote, "archived"))
+        self.assertEqual(out["state"]["archived_funds"], 1)
+        self.assertEqual(app.post("/api/recover")["result"], {"late_funds": 100})
+
+    def test_unpaid_invoice_is_forgotten(self):
+        orig = self.mint.mint_quote
+
+        def unpaid(amount, unit="sat"):
+            q = orig(amount, unit)
+            self.mint.quotes[q["quote"]]["state"] = q["state"] = "UNPAID"
+            return q
+        self.mint.mint_quote = unpaid
+        self.alice.post("/api/pair", {"pubkey": self.alice_dev.pubkey_hex})
+        self.alice.post("/api/fund", {"amount": 100})
+        out = self.alice.post("/api/abandon-fund")
+        self.assertEqual(out["outcome"], "forgotten")
+        self.assertEqual((out["state"]["pending_fund"], out["state"]["archived_funds"]), (None, 0))
+
+
 class TestDecode(Base):
     """The browser's fallback: post a webcam frame, the OpenCV reader decodes it."""
 

@@ -152,9 +152,10 @@ complete; `recover` clears it instead of leaving it stuck.
 Recipient tokens are saved in the wallet file until they have been printed, so
 a crash or error after a swap can't lose them.
 
-`abandon-fund` gives up on a funding whose invoice is unpaid, or paid but never
-sent to the mint, and prints the quote id so you can claim it elsewhere. If a mint
-request was sent, it archives the funding instead and `recover` keeps trying to finish it.
+`abandon-fund` gives up on a funding whose invoice is unpaid and prints its quote
+id. If the invoice was paid it finishes the funding instead; if a mint request may
+still land, or the mint can't be reached, it archives the funding and `recover`
+keeps trying to finish it.
 
 **One command at a time per wallet file.** The wallet holds a lock
 (`<wallet>.lock`, POSIX `flock`) while a command runs; a second command on the

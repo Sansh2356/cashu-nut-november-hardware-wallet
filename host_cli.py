@@ -267,13 +267,13 @@ def main():
                       "inputs. It was cleared.")
             print(f"Balance: {w.balance()} sat.")
         elif args.cmd == "abandon-fund":
-            quote, archived = w.abandon_fund()
-            if archived:
-                print(f"Funding archived (quote {quote}): the mint may still issue it, so "
-                      "recover keeps checking. You can fund again now.")
-            else:
-                print(f"Funding forgotten. If you paid it, claim quote {quote} at "
-                      f"{args.mint} with another wallet.")
+            quote, outcome = w.abandon_fund()
+            print({"funded": f"The invoice was paid, so the funding was finished instead (quote {quote}). "
+                             f"Balance: {w.balance()} sat.",
+                   "archived": f"Funding archived (quote {quote}): the mint may still issue it, so "
+                               "recover keeps checking. You can fund again now.",
+                   "forgotten": f"Funding forgotten (quote {quote}): its invoice is unpaid; "
+                                "don't pay it now."}[outcome])
         elif args.cmd == "cancel":
             w.cancel_pending()
             print("Pending send cleared. If the mint ever saw it, recover will still "

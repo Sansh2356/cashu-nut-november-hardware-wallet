@@ -104,6 +104,11 @@ def fund(w, body):
     return {"invoice": w.start_fund(int(body["amount"]), pk)["request"], "state": state_view(w)}
 
 
+def abandon_fund(w, body):
+    quote, outcome = w.abandon_fund()
+    return {"quote": quote, "outcome": outcome, "state": state_view(w)}
+
+
 def build(make):
     def action(w, body):
         make(w, body)
@@ -145,7 +150,7 @@ ACTIONS = {
     ("POST", "/api/melt"): build(lambda w, b: w.build_melt_request(b["invoice"])),
     ("POST", "/api/submit"): submit,
     ("POST", "/api/cancel"): then_state(lambda w, b: w.cancel_pending()),
-    ("POST", "/api/abandon-fund"): then_state(lambda w, b: w.abandon_fund()),
+    ("POST", "/api/abandon-fund"): abandon_fund,
     ("POST", "/api/tokens/clear"): then_state(lambda w, b: w.clear_tokens()),
     ("POST", "/api/recover"): lambda w, b: {"result": recover_view(w.recover()), "state": state_view(w)},
     ("POST", "/api/decode"): decode,  # needs no wallet: see _handle
