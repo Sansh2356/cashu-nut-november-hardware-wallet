@@ -152,6 +152,12 @@ def main():
         except (WalletError, OSError) as e:
             sys.exit(f"Error: {e}")
         return
+    sig = None
+    if args.cmd == "submit" and args.scan is not None:  # before opening the wallet: no lock while scanning
+        try:
+            sig = scan_signature(args.scan)
+        except (WalletError, OSError) as e:
+            sys.exit(f"Error: {e}")
 
     client = MintClient(args.mint)
     w = qr_request = None
@@ -203,16 +209,14 @@ def main():
             print(f"Receiving {total} sat (mint fee {total - sum(o['amount'] for o in req['outputs'])} sat).")
             qr_request = write_request(req, args.out)
         elif args.cmd == "submit":
-            if args.scan is not None:
-                sig = scan_signature(args.scan)
-            elif args.signature:
+            if sig is None and not args.signature:  # sig: scanned above
+                raise WalletError("give a signature file or --scan")
+            if sig is None:
                 try:
                     with open(args.signature) as f:
                         sig = json.load(f)
                 except (OSError, ValueError) as e:
                     raise WalletError(f"cannot read signature file {args.signature}: {e}") from None
-            else:
-                raise WalletError("give a signature file or --scan")
             pend = w.state.get("pending")
             melt = bool(pend) and pend["request"]["type"] == "melt"
             (print_melt_result if melt else print_send_result)(w.submit(sig))

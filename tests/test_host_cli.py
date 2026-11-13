@@ -65,6 +65,22 @@ class TestHostCli(unittest.TestCase):
         self.assertEqual(opened, [True])
         self.assertIn("animated QR", out)
 
+    def test_scan_does_not_hold_the_wallet(self):
+        from nutsigner import qr, wire
+        w = HostWallet(self.wallet, self.mint, host_cli.DEFAULT_MINT)
+        w.fund(64, PK)
+        sig = DeviceSigner.from_mnemonic(MNEMONIC).sign(w.build_send_request(5))
+        w.close()
+        opened = []
+
+        def scan(done, source=0, preview=None, caption=None):  # the camera is up for a while
+            HostWallet(self.wallet, self.mint, host_cli.DEFAULT_MINT).close()  # e.g. balance meanwhile
+            opened.append(True)
+            return done(qr.single(wire.encode_signature(sig)))
+        out = self.cli("submit", "--scan", qrview=types.SimpleNamespace(scan=scan))
+        self.assertEqual(opened, [True])
+        self.assertIn("cashuA", out)  # submitted: the token for the recipient
+
 
 if __name__ == "__main__":
     unittest.main()
