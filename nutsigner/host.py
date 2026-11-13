@@ -338,27 +338,32 @@ class HostWallet:
         return None, []
 
     def abandon_fund(self):
-        """Give up on an unfinished funding. Returns (quote id, archived).
+        """Give up on an unfinished funding. Returns (quote id, outcome):
 
-        Deleted only if no mint request of ours can still land; otherwise it is
-        archived, unblocking new funding, and recover keeps checking it.
+        "funded": the invoice was paid, so the funding is finished, never dropped;
+        "forgotten": the invoice is unpaid, so the entry is deleted;
+        "archived": a mint request of ours may still land, or the mint can't be
+        reached; new funding is unblocked and recover keeps checking it.
         """
         pf = self.state.get("pending_fund")
         if not pf:
             raise WalletError("no unfinished funding")
-        if self._restore_fund(pf)[1]:
-            raise WalletError("the mint already issued this funding; run recover instead")
         try:
+            outcome = self._recover_fund()  # mints a PAID quote, restores an issued one
+            if outcome in ("done", "expired"):
+                return pf["quote"], "funded" if outcome == "done" else "forgotten"
             state = self.mint.mint_quote_state(pf["quote"]).get("state")
-        except MintError:
+        except (MintError, WalletError):
             state = None
-        archived = not (state == "UNPAID" or (state == "PAID" and not pf.get("minted", True)))
-        if archived:
-            self.state.setdefault("abandoned_funds", []).append(pf)
-            self.state["device_pubkey"] = self._fund_pubkey(pf)  # it may still land
+        if state == "UNPAID":
+            self.state["pending_fund"] = None
+            self.save()
+            return pf["quote"], "forgotten"
+        self.state.setdefault("abandoned_funds", []).append(pf)
+        self.state["device_pubkey"] = self._fund_pubkey(pf)  # it may still land
         self.state["pending_fund"] = None
         self.save()
-        return pf["quote"], archived
+        return pf["quote"], "archived"
 
     def _fund_pubkey(self, pf):
         return pf.get("device_pubkey") or self.state["device_pubkey"]  # older files: state only
