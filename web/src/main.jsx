@@ -246,7 +246,7 @@ function Summary({ p }) {
 }
 
 // Request QR → the device approves → scan its signature QR → submit.
-function SignFlow({ view, run, onDone }) {
+function SignFlow({ view, state, run, onDone }) {
   const [scanning, setScanning] = useState(false);
   const submit = async (qr) => {
     const out = await run(() => api("submit", { qr }));
@@ -269,7 +269,8 @@ function SignFlow({ view, run, onDone }) {
           <AnimatedQR frames={view.frames} />
           <div className="row">
             <button className="primary" onClick={() => setScanning(true)}>Scan signature</button>
-            <button onClick={() => run(() => api("cancel", {})).then((o) => o && onDone(null))}>Cancel</button>
+            {!state.pending?.submitted && /* outcome unknown: recover only, as on the Pending tab */
+              <button onClick={() => run(() => api("cancel", {})).then((o) => o && onDone(null))}>Cancel</button>}
           </div>
         </>
       )}
@@ -293,11 +294,11 @@ function Result({ r, go }) {
 }
 
 // A screen with a form that builds a request, then the signing flow, then the result.
-function useSign(run) {
+function useSign(state, run) {
   const [view, setView] = useState(null);
   const [result, setResult] = useState(null);
   const build = async (path, body) => { const v = await run(() => api(path, body)); if (v) setView(v); };
-  const flow = view && <SignFlow view={view} run={run} onDone={(r) => { setView(null); setResult(r); }} />;
+  const flow = view && <SignFlow view={view} state={state} run={run} onDone={(r) => { setView(null); setResult(r); }} />;
   return { build, flow, result };
 }
 
@@ -313,7 +314,7 @@ function Busy({ state, go }) {
 function Send({ state, run, go }) {
   const [amount, setAmount] = useState(21);
   const [to, setTo] = useState("");
-  const s = useSign(run);
+  const s = useSign(state, run);
   if (s.flow) return s.flow;
   if (s.result) return <Result r={s.result} go={go} />;
   if (state.pending) return <Busy state={state} go={go} />;
@@ -334,7 +335,7 @@ function Send({ state, run, go }) {
 
 function Receive({ state, run, go }) {
   const [token, setToken] = useState("");
-  const s = useSign(run);
+  const s = useSign(state, run);
   if (s.flow) return s.flow;
   if (s.result) return <Result r={s.result} go={go} />;
   if (state.pending) return <Busy state={state} go={go} />;
@@ -354,7 +355,7 @@ function Receive({ state, run, go }) {
 
 function Pay({ state, run, go }) {
   const [invoice, setInvoice] = useState("");
-  const s = useSign(run);
+  const s = useSign(state, run);
   if (s.flow) return s.flow;
   if (s.result) return <Result r={s.result} go={go} />;
   if (state.pending) return <Busy state={state} go={go} />;
@@ -375,7 +376,7 @@ function Pending({ state, run, go, recover }) {
   const [view, setView] = useState(null);
   const [result, setResult] = useState(null);
   const pend = state.pending;
-  if (view) return <SignFlow view={view} run={run} onDone={(r) => { setView(null); setResult(r); }} />;
+  if (view) return <SignFlow view={view} state={state} run={run} onDone={(r) => { setView(null); setResult(r); }} />;
   if (result) return <Result r={result} go={go} />;
   return (
     <section className="card">
