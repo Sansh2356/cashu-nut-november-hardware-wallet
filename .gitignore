@@ -5,3 +5,5 @@ __pycache__/
 /*.json
 *.json.tmp
 *.json.lock
+web/node_modules/
+web/dist/
