@@ -163,7 +163,7 @@ function Pair({ state, run, setNotice }) {
 
 // ---------------------------------------------------------------- fund
 
-function Fund({ state, run, go }) {
+function Fund({ state, run, go, setNotice }) {
   const [amount, setAmount] = useState(100);
   const [done, setDone] = useState(null);
   const pf = state.pending_fund;
@@ -201,7 +201,12 @@ function Fund({ state, run, go }) {
       <QR text={pf.invoice.toUpperCase()} />
       <div className="row"><code className="wrap">{pf.invoice}</code><Copy text={pf.invoice} /></div>
       <p className="muted"><span className="spinner" /> Waiting for payment… The ecash is minted locked to your device.</p>
-      <button onClick={() => run(() => api("abandon-fund", {}))}>Give up on this invoice</button>
+      <button onClick={async () => {
+        const out = await run(() => api("abandon-fund", {}));
+        if (out) setNotice({ funded: `The invoice was paid, so the funding was finished (quote ${out.quote}).`,
+          archived: `Funding archived (quote ${out.quote}): the mint may still issue it; recover keeps checking.`,
+          forgotten: `Invoice given up (quote ${out.quote}). It is unpaid: don't pay it now.` }[out.outcome]);
+      }}>Give up on this invoice</button>
     </section>
   );
   return (

@@ -527,7 +527,7 @@ class TestFundRecovery(Base):
         with self.assertRaises(MintRejected):
             self.w.recover()
         pf = self.w.state["pending_fund"]
-        self.assertEqual(self.w.abandon_fund(), (pf["quote"], True))  # may still land: archived
+        self.assertEqual(self.w.abandon_fund(), (pf["quote"], "archived"))  # may still land
         self.assertFalse(self.w.in_flight())
         self.assertEqual(self.w.recover(), {"archived_stuck": [pf["quote"]]})  # reported, kept
         self.real.__class__ = FakeMint  # the mint accepts again
@@ -569,7 +569,7 @@ class TestFundRecovery(Base):
             self.w.fund(8, self.device.pubkey_hex)
         orig = self.real.mint_quote_state
         self.real.mint_quote_state = lambda q: dict(orig(q), state="PENDING")
-        self.assertTrue(self.w.abandon_fund()[1])
+        self.assertEqual(self.w.abandon_fund()[1], "archived")
         self.assertEqual(self.w.recover(), {})  # still PENDING: kept, not minted
         self.real.mint_quote_state = orig  # now PAID with no request in flight
         self.assertEqual(self.reopen().recover(), {"late_funds": 8})
@@ -581,7 +581,7 @@ class TestFundRecovery(Base):
             self.w.fund(8, self.device.pubkey_hex)
         orig = self.real.mint_quote_state
         self.real.mint_quote_state = lambda q: dict(orig(q), state="PENDING")
-        self.assertTrue(self.w.abandon_fund()[1])
+        self.assertEqual(self.w.abandon_fund()[1], "archived")
         self.real.mint_quote_state = orig  # PAID, nothing in flight
         self.real.rotate_keyset()  # archived outputs are now on an inactive keyset
         w = self.reopen()
@@ -604,7 +604,7 @@ class TestFundRecovery(Base):
         self.assertEqual(self.w.recover(), {"fund": "mint_pending"})
         self.assertTrue(self.w.in_flight())
         pf = self.w.state["pending_fund"]
-        self.assertTrue(self.w.abandon_fund()[1])  # archived, not deleted
+        self.assertEqual(self.w.abandon_fund()[1], "archived")  # archived, not deleted
         self.assertIsNone(self.w.state["pending_fund"])
         self.assertEqual(self.w.recover(), {})  # nothing yet; entry kept
         self.land(pf)  # the slow request lands
@@ -623,7 +623,8 @@ class TestFundRecovery(Base):
             self.w.fund(8, self.device.pubkey_hex, wait_s=0)
         quote = self.w.state["pending_fund"]["quote"]
         self.real.quotes[quote]["state"] = "PAID"  # paid, but we never called mint()
-        self.assertEqual(self.w.abandon_fund(), (quote, False))  # deleted: claim elsewhere
+        self.assertEqual(self.w.abandon_fund(), (quote, "funded"))  # paid: finished, not dropped
+        self.assertEqual((self.w.balance(), self.w.state["pending_fund"]), (8, None))
 
     def test_slow_first_mint_lands_after_retry(self):
         # mint(A) times out but is still running; the re-mint is refused
@@ -646,9 +647,8 @@ class TestFundRecovery(Base):
             self.w.fund(8, self.device.pubkey_hex)
         with self.assertRaises(MintRejected):  # B refused: quote now ISSUED to A
             self.w.recover()
-        with self.assertRaises(WalletError):  # A is restorable: no abandoning
-            self.w.abandon_fund()
-        self.assertEqual(self.reopen().recover(), {"fund": "done"})
+        quote = self.w.state["pending_fund"]["quote"]
+        self.assertEqual(self.w.abandon_fund(), (quote, "funded"))  # A is restorable: finished
         self.assertEqual(self.w.balance(), 8)
 
     def test_invoice_paid_late(self):
@@ -680,7 +680,7 @@ class TestFundRecovery(Base):
             self.w.fund(8, self.device.pubkey_hex)
         self.mint.fail["restore"] = "reject"
         self.mint.fail["mint_quote_state"] = "before"  # can't check: archive, keep secrets
-        self.assertTrue(self.w.abandon_fund()[1])
+        self.assertEqual(self.w.abandon_fund()[1], "archived")
         self.assertEqual(len(self.w.state["abandoned_funds"]), 1)
         self.assertEqual(self.w.recover(), {"late_funds": 8})  # restore works again
         self.assertEqual(self.w.balance(), 8)
