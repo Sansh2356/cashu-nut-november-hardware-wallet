@@ -45,9 +45,10 @@ def print_melt_result(result):
 
 def print_tokens(w):
     """Show tokens of finished sends, then forget them. They are bearer money."""
-    for token in w.state.get("undelivered_tokens", []):
+    tokens = list(w.state.get("undelivered_tokens", []))
+    for token in tokens:
         print(f"\nToken for the recipient:\n{token}\n")
-    w.clear_tokens()
+    w.clear_tokens(tokens)
 
 
 def scan_signature(source) -> dict:

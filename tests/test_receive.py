@@ -51,7 +51,7 @@ class Base(unittest.TestCase):
     def send(self, amount, to):
         req = self.alice.build_send_request(amount, to_pubkey=to)
         token, sent, _ = self.alice.submit(self.alice_dev.sign(req))
-        self.alice.clear_tokens()
+        self.alice.clear_tokens([token])
         return token
 
 

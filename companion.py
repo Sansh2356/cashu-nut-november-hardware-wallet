@@ -151,7 +151,7 @@ ACTIONS = {
     ("POST", "/api/submit"): submit,
     ("POST", "/api/cancel"): then_state(lambda w, b: w.cancel_pending()),
     ("POST", "/api/abandon-fund"): abandon_fund,
-    ("POST", "/api/tokens/clear"): then_state(lambda w, b: w.clear_tokens()),
+    ("POST", "/api/tokens/clear"): then_state(lambda w, b: w.clear_tokens(b.get("tokens"))),
     ("POST", "/api/recover"): lambda w, b: {"result": recover_view(w.recover()), "state": state_view(w)},
     ("POST", "/api/decode"): decode,  # needs no wallet: see _handle
 }
