@@ -225,8 +225,8 @@ class Handler(BaseHTTPRequestHandler):
         if method == "POST":
             if not (self.headers.get("Content-Type") or "").startswith("application/json"):
                 return self._send(415, {"error": "send JSON"})
-            n = int(self.headers.get("Content-Length") or 0)
             try:
+                n = int(self.headers.get("Content-Length") or 0)
                 body = json.loads(self.rfile.read(n) if 0 < n < 4 << 20 else b"{}")  # 4 MB: webcam frames
                 assert isinstance(body, dict)
             except (ValueError, AssertionError):
