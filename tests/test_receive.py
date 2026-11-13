@@ -74,7 +74,7 @@ class TestDemo(Base):
         self.assertEqual((review["sending"], review["in_total"]), (0, 21))
         lines = summary_lines(review)
         print("\n  Bob's device:\n   " + "\n   ".join(lines))
-        self.assertEqual(lines[:2], ["Receive 21 sat", f"Fee {review['fee']} sat"])
+        self.assertEqual(lines[:2], ["Receive 20 sat", "Fee 1 sat"])  # the amount kept, as the app shows it
         _, sent, change = self.bob.submit(sign_over_qr(self.bob_dev, on_device))
         self.assertEqual(sent, [])
         self.assertEqual(self.bob.balance(), 21 - review["fee"])

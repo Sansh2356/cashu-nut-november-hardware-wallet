@@ -69,7 +69,7 @@ Pi: Seeds → Alice's fingerprint → Discard seed. Then Scan → Bob's paper
 SeedQR (or Seeds → Load a seed → Scan a SeedQR).
 
 Bob's app: **Receive** → paste the token → Create request. Pi shows
-`Receive 21 sat / Fee 1 sat / Mint testnut.cashu.sp`. Approve and scan the
+`Receive 20 sat / Fee 1 sat / Mint testnut.cashu.sp`. Approve and scan the
 signature: "Received 20 sat, locked to your device". (Optional shot: paste the
 same token again; the app refuses it, already spent.)
 
