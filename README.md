@@ -26,6 +26,7 @@ This is the Week 1 code: the signing core, a host wallet, and a command-line
 | Melt (pay a Lightning invoice) | Done: NUT-05 bolt11 + NUT-08 change + `SIG_ALL`; works on testnut (2026-11-12) |
 | Receive (locked to this device) | Done: `send --to` locks to the recipient's device with `SIG_ALL`; `receive` swaps it into fresh locked coins |
 | Pi Zero UI (SeedSigner fork) | Swap, receive and melt screens; see `docs/DEMO.md` |
+| Companion app (browser UI) | Pair, fund, send, receive, pay, pending, history; `companion.py` + `web/` |
 
 ## Setup (laptop)
 
@@ -34,6 +35,38 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-host.txt               # device-only installs need just requirements.txt
 python3 -m unittest discover -s tests -t . -v     # the testnut tests skip by default
 NUTSIGNER_TESTNUT=1 python3 -m pytest -q -k testnut   # optional: a real melt on testnut
+```
+
+## Companion app
+
+The laptop wallet for the Pi, with a browser UI: pair by scanning the
+device's pubkey QR (no seed words on the laptop), fund, send (optionally
+locked to another device), receive, pay an invoice, and see the balance,
+pending request and history. Every request goes to the Pi as an animated QR
+in the browser; the Pi's signature QR comes back through the webcam.
+
+```bash
+pip install -r requirements-host.txt         # OpenCV is optional: the fallback reader for the Pi's dim LCD
+(cd web && npm install && npm run build)     # builds web/dist (Node 20.19+ or 22.12+)
+python3 companion.py --wallet alice.json     # opens http://127.0.0.1:8338
+```
+
+`--mint` picks the mint (default testnut), `--port` the port, `--no-browser`
+skips opening a tab. The app listens on 127.0.0.1 only and refuses other
+sites' requests. It runs `recover` on start; the wallet file is opened for one
+API call at a time, so `host_cli.py` can use the same file while it runs.
+`docs/DEMO.md` walks through the two-user demo with it.
+
+The webcam reader asks for 1080p, grayscales and contrast-stretches each frame
+and decodes it with jsQR (normal and inverted). When that misses, about twice
+a second it posts the frame to `/api/decode`, the same OpenCV reader as
+`host_cli.py --scan`. Without a camera, paste the QR text instead.
+
+UI code is in `web/src` (React, `qrcode`, `jsqr`; no UI framework):
+
+```bash
+cd web && npm test         # vitest: QR decode and parse helpers
+npm run build              # then reload the page; companion.py serves web/dist
 ```
 
 ## First run against the real testnut mint
@@ -270,6 +303,7 @@ nutsigner/mint.py     mint HTTP client (stdlib only)
 nutsigner/host.py     host wallet: fund, send, submit
 device_cli.py         device as a terminal app
 host_cli.py           host wallet CLI
+companion.py          companion app: local JSON API + the UI in web/ (React, Vite)
 tests/                spec vectors, flow + attack tests, crash-recovery tests, offline test mint
 ```
 
