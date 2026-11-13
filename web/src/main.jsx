@@ -140,7 +140,12 @@ function Pair({ state, run, setNotice }) {
   return (
     <section className="card">
       <h2>Device</h2>
-      {state.device_pubkey && <p>Paired with device key <code>{state.device_pubkey}</code></p>}
+      {state.device_pubkey && (
+        <>
+          <div className="row">Paired with device key <code className="wrap">{state.device_pubkey}</code><Copy text={state.device_pubkey} /></div>
+          <p className="muted">Others send to this key to lock ecash to your device.</p>
+        </>
+      )}
       <ol>
         <li>On the NutSigner, load your seed (SeedQR or words). The seed never touches this laptop.</li>
         <li>Tools → Cashu → Show pubkey.</li>
