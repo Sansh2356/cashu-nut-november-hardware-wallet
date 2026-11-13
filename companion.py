@@ -14,6 +14,7 @@ import argparse
 import json
 import mimetypes
 import os
+import struct
 import sys
 import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -25,6 +26,7 @@ from nutsigner.mint import MintClient, MintError, MintUnavailable
 DEFAULT_MINT = "https://testnut.cashu.space"
 DIST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web", "dist")
 FRAME_LOOPS = 3  # request frames sent to the UI: the plain ones, then fountain-coded extras
+MAX_DECODE_PIXELS = 4096 * 4096  # webcam frames are far smaller; refuse decompression bombs
 IN_FLIGHT_HINT = ("The outcome is unknown, but nothing is lost: everything needed is saved "
                   "in the wallet file. Run recover.")
 
@@ -123,6 +125,24 @@ def then_state(do):
     return action
 
 
+def image_pixels(data):
+    """Width x height a PNG or JPEG header declares, or None (not one of those)."""
+    if data[:8] == b"\x89PNG\r\n\x1a\n" and data[12:16] == b"IHDR":
+        w, h = struct.unpack(">II", data[16:24])
+        return w * h
+    i = 2 if data[:2] == b"\xff\xd8" else len(data)
+    while i + 9 <= len(data) and data[i] == 0xFF:
+        m = data[i + 1]
+        if m == 0xFF or m == 0x01 or 0xD0 <= m <= 0xD8:  # fill byte, standalone markers
+            i += 1 if m == 0xFF else 2
+        elif 0xC0 <= m <= 0xCF and m not in (0xC4, 0xC8, 0xCC):  # SOFn: height, width
+            h, w = struct.unpack(">HH", data[i + 5:i + 9])
+            return w * h
+        else:
+            i += 2 + int.from_bytes(data[i + 2:i + 4], "big")
+    return None
+
+
 def decode(body):
     """Text of the QR in a posted webcam frame (data: URL), or "": the browser's
     fallback for the Pi's dim LCD, using the CLI's OpenCV reader. No wallet needed."""
@@ -133,8 +153,13 @@ def decode(body):
         from nutsigner import qrview
     except ImportError:
         raise WalletError("OpenCV not installed (pip install -r requirements-host.txt)") from None
-    img = cv2.imdecode(np.frombuffer(base64.b64decode(body["image"].split(",", 1)[-1]), np.uint8),
-                       cv2.IMREAD_GRAYSCALE)
+    data = base64.b64decode(body["image"].split(",", 1)[-1])
+    pixels = image_pixels(data)
+    if pixels is None:
+        raise WalletError("not a PNG or JPEG image")
+    if pixels > MAX_DECODE_PIXELS:
+        raise WalletError("image too large")
+    img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_GRAYSCALE)
     if img is None:
         raise WalletError("not an image")
     return {"text": qrview.decode(img)}

@@ -282,6 +282,24 @@ class TestDecode(Base):
                          {"text": ""})
         self.alice.post("/api/decode", {"image": "data:image/jpeg;base64,AAAA"}, expect=400)
 
+    def test_refuses_huge_images(self):
+        import base64
+        import struct
+
+        import cv2
+        import numpy as np
+        small = cv2.imencode(".jpg", np.zeros((8, 8), np.uint8))[1].tobytes()
+        i = small.index(b"\xff\xc0")  # SOF0: height, width at +5
+        big = small[:i + 5] + struct.pack(">HH", 5000, 5000) + small[i + 9:]  # declares 25 Mpx
+        out = self.alice.post("/api/decode", {"image": "data:image/jpeg;base64," + base64.b64encode(big).decode()},
+                              expect=400)
+        self.assertIn("too large", out["error"])
+        png = cv2.imencode(".png", np.zeros((8, 8), np.uint8))[1].tobytes()
+        png = png[:16] + struct.pack(">II", 100000, 100000) + png[24:]
+        out = self.alice.post("/api/decode", {"image": "data:image/png;base64," + base64.b64encode(png).decode()},
+                              expect=400)
+        self.assertIn("too large", out["error"])
+
     def test_works_while_the_cli_holds_the_wallet(self):
         import numpy as np
         w = HostWallet(self.alice.wallet, self.mint, URL)
