@@ -145,6 +145,13 @@ class TestReceiveRefusals(Base):
         token = self.send(21, self.bob_dev.pubkey_hex)
         self.assert_refused(token, "different device key", pubkey=self.alice_dev.pubkey_hex)
 
+    def test_unfinished_funding_holds_its_key(self):
+        carol = DeviceSigner.from_mnemonic(CAROL)
+        self.bob.start_fund(10, carol.pubkey_hex)  # not yet minted: device_pubkey still unset
+        token = self.send(21, self.bob_dev.pubkey_hex)
+        self.assert_refused(token, "different device key")
+        self.assertIsNone(self.bob.state["device_pubkey"])
+
     def test_fresh_wallet_needs_device_key(self):
         token = self.send(21, self.bob_dev.pubkey_hex)
         with self.assertRaises(WalletError) as cm:

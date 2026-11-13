@@ -268,14 +268,20 @@ class HostWallet:
     def pair(self, device_pubkey: str) -> str:
         """Remember the device's key (scanned from its screen) for later funding."""
         device_pubkey = check_pubkey(device_pubkey, "device pubkey")
-        known = self.state.get("device_pubkey")
-        holds = any(self.state.get(k) for k in ("proofs", "pending", "pending_fund", "abandoned_funds",
-                                                 "abandoned_sends", "unclaimed_change"))
-        if known and known != device_pubkey and holds:
-            raise WalletError("this wallet is already locked to a different device key")
+        self._check_key(device_pubkey)
         self.state["device_pubkey"] = device_pubkey
         self.save()
         return device_pubkey
+
+    def _check_key(self, device_pubkey):
+        """Refuse a key other than the one the wallet's coins (or unfinished fundings) are locked to."""
+        known = self.state.get("device_pubkey")
+        holds = any(self.state.get(k) for k in ("proofs", "pending", "pending_fund", "abandoned_funds",
+                                                 "abandoned_sends", "unclaimed_change"))
+        funds = [f for f in [self.state.get("pending_fund"), *self.state.get("abandoned_funds", [])] if f]
+        if (known and known != device_pubkey and holds) or any(
+                self._fund_pubkey(f) != device_pubkey for f in funds):
+            raise WalletError("this wallet is already locked to a different device key")
 
     def _log(self, kind, amount, status="done", **extra):
         """Append to the wallet's history (saved by the caller's next save())."""
@@ -400,8 +406,7 @@ class HostWallet:
         device_pk = self.state.get("device_pubkey")
         if given is not None:
             given = check_pubkey(given, "device pubkey")
-            if device_pk and device_pk != given:
-                raise WalletError("this wallet is already locked to a different device key")
+            self._check_key(given)
             return given
         if not device_pk:
             raise WalletError("wallet has no device key yet; fund it first")
