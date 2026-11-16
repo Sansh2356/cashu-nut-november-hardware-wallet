@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Amount, Busy, Result, useSign } from "../components";
 
 export function Send({ state, run, go }) {
-  const [amount, setAmount] = useState(21);
+  const [amount, setAmount] = useState("");
   const [to, setTo] = useState("");
   const s = useSign(state, run);
   if (s.flow) return s.flow;

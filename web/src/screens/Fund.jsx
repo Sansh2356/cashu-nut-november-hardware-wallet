@@ -3,7 +3,7 @@ import { api, sat } from "../api.js";
 import { Amount, Copy, QR } from "../components";
 
 export function Fund({ state, run, go, setNotice }) {
-  const [amount, setAmount] = useState(100);
+  const [amount, setAmount] = useState("");
   const [done, setDone] = useState(null);
   const pf = state.pending_fund;
 
