@@ -1,67 +1,6 @@
-import QRCode from "qrcode";
 import { useEffect, useRef, useState } from "react";
-import { decodePixels } from "./qr.js";
-
-// ---------------------------------------------------------------- API
-
-// GET without a body, POST with one. Errors carry the server's {error, hint, in_flight}.
-// Every call carries this run's token, which the server put in the page.
-const TOKEN = document.querySelector('meta[name="nutsigner-token"]')?.content ?? "";
-export async function api(path, body) {
-  const headers = { "X-NutSigner-Token": TOKEN };
-  const r = await fetch("/api/" + path, body === undefined ? { headers } : {
-    method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify(body),
-  });
-  const out = await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
-  if (!r.ok) throw Object.assign(new Error(out.error), out);
-  return out;
-}
-
-export const sat = (n) => `${n.toLocaleString()} sat`;
-
-// ---------------------------------------------------------------- QR out
-
-const QR_OPTS = { type: "svg", errorCorrectionLevel: "L", margin: 4 };
-
-export function QR({ text, small }) {
-  const [svg, setSvg] = useState(null);
-  useEffect(() => {
-    QRCode.toString(text, QR_OPTS).then(setSvg, () => setSvg(""));
-  }, [text]);
-  if (svg === "") return <p className="muted">Too long for one QR code: copy the text instead.</p>;
-  return <div className={small ? "qr small" : "qr"} dangerouslySetInnerHTML={{ __html: svg || "" }} />;
-}
-
-// The request as an animated BC-UR QR, frames from the Python side (nutsigner/qr.py), 5 fps.
-export function AnimatedQR({ frames }) {
-  const [svgs, setSvgs] = useState([]);
-  const [i, setI] = useState(0);
-  useEffect(() => {
-    Promise.all(frames.map((f) => QRCode.toString(f, QR_OPTS))).then(setSvgs);
-  }, [frames]);
-  useEffect(() => {
-    const t = setInterval(() => setI((i) => i + 1), 200);
-    return () => clearInterval(t);
-  }, []);
-  if (!svgs.length) return null;
-  return (
-    <figure>
-      <div className="qr" dangerouslySetInnerHTML={{ __html: svgs[i % svgs.length] }} />
-      <figcaption className="muted">frame {(i % svgs.length) + 1} of {svgs.length}</figcaption>
-    </figure>
-  );
-}
-
-export function Copy({ text }) {
-  const [done, setDone] = useState(false);
-  return (
-    <button onClick={() => navigator.clipboard.writeText(text).then(() => setDone(true))}>
-      {done ? "Copied" : "Copy"}
-    </button>
-  );
-}
-
-// ---------------------------------------------------------------- QR in (webcam)
+import { api } from "../api.js";
+import { decodePixels } from "../qr.js";
 
 // Reads QR codes with the webcam until `accept(text)` holds, then calls onText(text) once.
 // Each frame: grayscale + contrast stretch + jsQR (normal and inverted). If that misses,

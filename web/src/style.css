@@ -1,50 +1,95 @@
+/* Dark by default like cashu.me (page #121212, cards #1d1d1d, 20px radius, pill buttons),
+   Minibits' blue primary and Bitcoin orange for the brand. Light follows the system. */
 :root {
-  --bg: #f6f5f2; --card: #fff; --ink: #1c1c1c; --muted: #6b6b6b; --line: #e3e1dc;
-  --accent: #6b3fd4; --ok: #1d7a46; --bad: #b42318; --bad-bg: #fdecea;
-  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
-  color: var(--ink); background: var(--bg);
+  --bg: #121212; --card: #1d1d1d; --raised: #262626; --ink: #f4f4f4; --muted: #978f8a; --line: #2e2e2e;
+  --primary: #2371f4; --primary-ink: #fff; --brand: #f7931a;
+  --ok: #78c670; --ok-bg: rgba(120, 198, 112, .12); --bad: #f2836b; --bad-bg: rgba(192, 52, 3, .16);
+  --radius: 20px; --pill: 999px;
+  font: 16px/1.5 Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--ink); background: var(--bg); color-scheme: dark;
 }
-body { margin: 0; }
-main { max-width: 860px; margin: 0 auto; padding: 16px; }
-header { display: flex; justify-content: space-between; align-items: baseline; }
-h1 { margin: 8px 0; font-size: 1.6rem; }
-h2 { margin: 0 0 12px; font-size: 1.2rem; }
-.balance { font-size: 1.4rem; font-weight: 600; }
-nav { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0 16px; border-bottom: 1px solid var(--line); }
-nav button { border: 0; border-bottom: 3px solid transparent; border-radius: 0; background: none; padding: 8px 12px; }
-nav button.on { border-bottom-color: var(--accent); font-weight: 600; }
-.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 20px; margin-bottom: 16px; }
-.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
-.stat { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; display: flex; flex-direction: column; overflow-wrap: anywhere; }
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f4f4f4; --card: #fff; --raised: #f4f4f4; --ink: #181818; --muted: #564e4a; --line: #e6e6e6;
+    --ok: #3e7a38; --ok-bg: #e7f3e5; --bad: #c03403; --bad-bg: #f2d6cd; color-scheme: light;
+  }
+}
+
+body { margin: 0; background: var(--bg); }
+main { max-width: 760px; margin: 0 auto; padding: 16px; }
+h1, h2 { letter-spacing: -.01em; }
+h2 { margin: 0 0 14px; font-size: 1.15rem; font-weight: 600; }
+
+/* header: brand on the left, balance view centred below, like cashu.me's main page */
+header { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 0 20px; }
+.brand { align-self: flex-start; margin: 0; font-size: 1rem; font-weight: 700; color: var(--brand); }
+.balance { display: flex; flex-direction: column; align-items: center; }
+.balance .amount { font-size: clamp(2.2rem, 8vw, 3.2rem); font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+
+/* segmented tab bar (Minibits) */
+nav { display: flex; gap: 4px; padding: 4px; margin: 0 0 16px; background: var(--card); border-radius: var(--pill);
+  overflow-x: auto; scrollbar-width: none; }
+nav button { flex: 1 0 auto; border: 0; background: none; color: var(--muted); padding: 8px 14px; white-space: nowrap; }
+nav button.on { background: var(--raised); color: var(--ink); font-weight: 600; }
+
+.card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; margin-bottom: 16px; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.stat { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 12px 16px;
+  display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
 .stat.big span:last-child { font-size: 1.8rem; font-weight: 600; }
 .muted { color: var(--muted); font-size: .9rem; }
 .ok { color: var(--ok); } .bad { color: var(--bad); }
-.notice { background: #eef7f1; border: 1px solid #b7dfc5; border-radius: 8px; padding: 10px 14px; }
-.error { background: var(--bad-bg); border: 1px solid #f3b8b2; color: var(--bad); border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; }
+.pill { display: inline-block; padding: 1px 10px; border-radius: var(--pill); font-size: .85rem; font-weight: 500; }
+.pill.ok { background: var(--ok-bg); } .pill.bad { background: var(--bad-bg); }
+.notice { background: var(--ok-bg); color: var(--ok); border-radius: 14px; padding: 10px 14px; }
+.error { background: var(--bad-bg); color: var(--bad); border-radius: 14px; padding: 10px 14px; margin-bottom: 16px; }
 .error p { margin: 4px 0 0; }
-button { font: inherit; padding: 8px 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); cursor: pointer; }
-button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+button { font: inherit; font-weight: 500; padding: 9px 18px; border: 1px solid var(--line); border-radius: var(--pill);
+  background: var(--raised); color: var(--ink); cursor: pointer; }
+button:hover:not(:disabled) { filter: brightness(1.15); }
+button.primary { background: var(--primary); color: var(--primary-ink); border-color: var(--primary); }
+button.ghost { background: none; }
 button:disabled { opacity: .5; cursor: default; }
-input, textarea { font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; width: 100%; box-sizing: border-box; }
+button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+input, textarea { font: inherit; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; width: 100%;
+  box-sizing: border-box; background: var(--raised); color: var(--ink); }
 textarea { font-family: ui-monospace, monospace; font-size: .85rem; }
-label { display: block; margin-bottom: 12px; }
+label { display: block; margin-bottom: 12px; color: var(--muted); font-size: .9rem; }
+label input, label textarea { margin-top: 4px; color: var(--ink); font-size: 1rem; }
 form button { margin-top: 4px; }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
 .row input { flex: 1; min-width: 0; }
 .row label { margin: 0; }
 .spread { justify-content: space-between; }
+.spread h2 { margin: 0; }
 code { font-family: ui-monospace, monospace; font-size: .9em; }
 .wrap { overflow-wrap: anywhere; word-break: break-all; }
-dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0 0 16px; }
+ol { padding-left: 20px; } li { margin: 4px 0; }
+
+dl { display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; margin: 0 0 16px; padding: 14px 16px;
+  background: var(--raised); border-radius: 14px; }
 dt { color: var(--muted); } dd { margin: 0; font-weight: 500; overflow-wrap: anywhere; }
+
+/* history: list-like rows, as in cashu.me's history */
 table { width: 100%; border-collapse: collapse; font-size: .95rem; }
-th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 500; font-size: .85rem; }
+th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--line); }
+tbody tr:last-child td { border-bottom: 0; }
+td.kind { text-transform: capitalize; font-weight: 500; }
 .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* QR codes stay dark-on-white in both themes: the Pi's camera reads them */
 figure { margin: 0; text-align: center; }
-.qr svg { display: block; width: min(520px, 100%, 70vh); height: auto; margin: 8px auto; image-rendering: pixelated; }
+.qr svg { display: block; width: min(520px, 100%, 70vh); height: auto; margin: 8px auto; image-rendering: pixelated;
+  background: #fff; border-radius: 12px; }
 .qr.small svg { width: min(320px, 100%); }
 .token textarea { margin: 8px 0; }
-.scanner video { width: 100%; max-height: 60vh; background: #000; border-radius: 8px; transform: scaleX(-1); }
-.spinner { display: inline-block; width: .8em; height: .8em; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; vertical-align: -1px; }
+.scanner video { width: 100%; max-height: 60vh; background: #000; border-radius: 16px; transform: scaleX(-1); }
+.spinner { display: inline-block; width: .8em; height: .8em; border: 2px solid var(--line); border-top-color: var(--primary);
+  border-radius: 50%; animation: spin 1s linear infinite; vertical-align: -1px; }
 @keyframes spin { to { transform: rotate(360deg); } }
-@media (max-width: 600px) { table .muted { display: none; } }
+@media (max-width: 600px) {
+  th:first-child, td:first-child { display: none; } /* the date column; header and cells together */
+  main { padding: 12px; } .card { padding: 16px; }
+}
