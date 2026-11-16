@@ -318,9 +318,10 @@ and `device_cli.py` to the Pi and run the same commands over SSH.
 The SeedSigner fork replaces the terminal with the 240×240 screen, buttons and
 camera.
 
-An iterative demo for progress till now - 
+An e2e demo - 
 
-https://github.com/user-attachments/assets/1389ff44-1923-4f79-9fd8-399096adaa37
+https://github.com/user-attachments/assets/f78d27ff-aac9-4c13-ae06-ccb78e4193f0
+
 
 
 
