@@ -17,7 +17,7 @@
 }
 
 body { margin: 0; background: var(--bg); }
-main { max-width: 760px; margin: 0 auto; padding: 16px; }
+main { position: relative; z-index: 1; max-width: 760px; margin: 0 auto; padding: 16px; }
 h1, h2 { letter-spacing: -.01em; }
 h2 { margin: 0 0 14px; font-size: 1.15rem; font-weight: 600; }
 
@@ -81,6 +81,10 @@ th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--lin
 tbody tr:last-child td { border-bottom: 0; }
 td.kind { text-transform: capitalize; font-weight: 500; }
 .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* falling cashews behind everything; cards are opaque so text stays readable */
+.falling-nuts { position: fixed; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
+.nut { position: absolute; top: 0; width: 40px; height: 40px; opacity: .22; will-change: transform; }
 
 /* QR codes stay dark-on-white in both themes: the Pi's camera reads them */
 figure { margin: 0; text-align: center; }

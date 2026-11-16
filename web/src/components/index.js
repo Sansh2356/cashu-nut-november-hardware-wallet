@@ -4,6 +4,7 @@ export { AnimatedQR } from "./AnimatedQR.jsx";
 export { Banner } from "./Banner.jsx";
 export { Busy } from "./Busy.jsx";
 export { Copy } from "./Copy.jsx";
+export { FallingNuts } from "./FallingNuts.jsx";
 export { HistoryTable } from "./HistoryTable.jsx";
 export { QR } from "./QR.jsx";
 export { Result } from "./Result.jsx";
