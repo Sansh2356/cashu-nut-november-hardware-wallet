@@ -1,7 +1,7 @@
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { api, sat } from "./api.js";
-import { Banner, Tokens } from "./components";
+import { Banner, FallingNuts, Tokens } from "./components";
 import { Fund, Home, Pair, Pay, Pending, Receive, Send } from "./screens";
 import "./style.css";
 
@@ -66,4 +66,4 @@ function App() {
   );
 }
 
-createRoot(document.getElementById("root")).render(<StrictMode><App /></StrictMode>);
+createRoot(document.getElementById("root")).render(<StrictMode><FallingNuts /><App /></StrictMode>);
