@@ -1,8 +1,8 @@
-/* Dark by default like cashu.me (page #121212, cards #1d1d1d, 20px radius, pill buttons),
-   Minibits' blue primary and Bitcoin orange for the brand. Light follows the system. */
+/* Cashu look: dark purple-tinted surfaces, Cashu purple primary, cashew tan for the brand,
+   20px cards and pill buttons like cashu.me. Light follows the system. */
 :root {
-  --bg: #121212; --card: #1d1d1d; --raised: #262626; --ink: #f4f4f4; --muted: #978f8a; --line: #2e2e2e;
-  --primary: #2371f4; --primary-ink: #fff; --brand: #f7931a;
+  --bg: #13101c; --card: #1d1929; --raised: #2a2439; --ink: #f4f2f8; --muted: #a39cb5; --line: #332c45;
+  --primary: #7b4ce0; --primary-ink: #fff; --brand: #f1c98b;
   --ok: #78c670; --ok-bg: rgba(120, 198, 112, .12); --bad: #f2836b; --bad-bg: rgba(192, 52, 3, .16);
   --radius: 20px; --pill: 999px;
   font: 16px/1.5 Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -10,7 +10,8 @@
 }
 @media (prefers-color-scheme: light) {
   :root {
-    --bg: #f4f4f4; --card: #fff; --raised: #f4f4f4; --ink: #181818; --muted: #564e4a; --line: #e6e6e6;
+    --bg: #f5f2fb; --card: #fff; --raised: #efeaf8; --ink: #1a1625; --muted: #5d5670; --line: #e3dcf1;
+    --brand: #6a3fd0;
     --ok: #3e7a38; --ok-bg: #e7f3e5; --bad: #c03403; --bad-bg: #f2d6cd; color-scheme: light;
   }
 }
@@ -22,11 +23,13 @@ h2 { margin: 0 0 14px; font-size: 1.15rem; font-weight: 600; }
 
 /* header: brand on the left, balance view centred below, like cashu.me's main page */
 header { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 0 20px; }
-.brand { align-self: flex-start; margin: 0; font-size: 1rem; font-weight: 700; color: var(--brand); }
+.brand { align-self: flex-start; margin: 0; font-size: 1rem; font-weight: 700; color: var(--brand);
+  display: flex; align-items: center; gap: 8px; }
+.brand img { width: 32px; height: 32px; }
 .balance { display: flex; flex-direction: column; align-items: center; }
 .balance .amount { font-size: clamp(2.2rem, 8vw, 3.2rem); font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
 
-/* segmented tab bar (Minibits) */
+/* segmented tab bar */
 nav { display: flex; gap: 4px; padding: 4px; margin: 0 0 16px; background: var(--card); border-radius: var(--pill);
   overflow-x: auto; scrollbar-width: none; }
 nav button { flex: 1 0 auto; border: 0; background: none; color: var(--muted); padding: 8px 14px; white-space: nowrap; }

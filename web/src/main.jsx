@@ -45,7 +45,7 @@ function App() {
   return (
     <main>
       <header>
-        <h1 className="brand">NutSigner</h1>
+        <h1 className="brand"><img src="/logo.svg" alt="" />NutSigner</h1>
         <div className="balance">
           <span className="amount">{sat(state.balance)}</span>
           <span className="muted">{state.mint.replace(/^https?:\/\//, "")}</span>

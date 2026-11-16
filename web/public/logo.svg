@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <circle cx="32" cy="32" r="32" fill="#7b4ce0"/>
+  <!-- cashew: a fat kidney curling down-left -->
+  <path d="M22 12c14-6 32 2 32 20 0 15-12 24-25 22-7-1-9-7-4-10 6-3 13-3 15-10 2-8-6-11-13-9-8 2-15-1-15-6 0-3 4-6 10-7z"
+        fill="#f1c98b" stroke="#c8925a" stroke-width="2" stroke-linejoin="round"/>
+  <!-- sunglasses -->
+  <path d="M17 19h34" stroke="#17121f" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M19 19h11c0 6-2 9-6 9s-5-4-5-9zM36 19h12c0 6-2 9-6 9s-6-4-6-9z" fill="#17121f"/>
+  <path d="M21 21l3 0M38 21l3 0" stroke="#fff" stroke-opacity=".6" stroke-width="1.5" stroke-linecap="round"/>
+  <path d="M30 37c3 2 7 2 10 0" fill="none" stroke="#17121f" stroke-width="2" stroke-linecap="round"/>
+</svg>
