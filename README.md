@@ -7,8 +7,14 @@ Ecash is locked to a key that lives only on an offline device (NUT-11 P2PK with
 worthless without the device's signature. `SIG_ALL` covers every input **and
 every output**, so a compromised laptop can't reuse a signature to redirect
 the money.
+## On device demo -:
 
 https://github.com/user-attachments/assets/f78d27ff-aac9-4c13-ae06-ccb78e4193f0
+
+## Final updated UI demo emulated (No functional changes except the /web frontend)-:
+
+https://github.com/user-attachments/assets/0b81feb0-682a-4807-9782-1547b2e411cc
+
 
 ## What works
 
